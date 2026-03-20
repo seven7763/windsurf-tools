@@ -4,6 +4,8 @@
 
 **GitHub 仓库：** [https://github.com/shaoyu521/windsurf-Tools](https://github.com/shaoyu521/windsurf-Tools)
 
+**下载预编译（Windows amd64）：** [Releases](https://github.com/shaoyu521/windsurf-Tools/releases) → 选择最新版本，下载 **`windsurf-tools-wails-windows-amd64.zip`**，解压后运行 `windsurf-tools-wails.exe`。
+
 ---
 
 ## 界面预览
@@ -34,13 +36,8 @@
 
 ### 获取已构建产物
 
-在本机执行 `wails build` 后，可执行文件位于：
-
-```text
-build/bin/windsurf-tools-wails.exe
-```
-
-也可在 GitHub **Releases** 中下载打包好的版本（若作者已上传）。
+- **推荐**：从 [GitHub Releases](https://github.com/shaoyu521/windsurf-Tools/releases) 下载 `windsurf-tools-wails-windows-amd64.zip`（由 CI 在推送 `v*` 标签时自动构建上传）。
+- **本地构建**：执行 `wails build` 后，可执行文件位于 `build/bin/windsurf-tools-wails.exe`。
 
 ---
 
@@ -123,8 +120,22 @@ wails dev
 
 **Windsurf Tools** is a Windows desktop app (Wails + Vue 3) for managing multiple Windsurf accounts, refreshing quotas/tokens, and seamless account switching with configurable plan-pool filters (including **multi-select**, e.g. `trial,pro`).
 
+- **Download**: [Releases](https://github.com/shaoyu521/windsurf-Tools/releases) → `windsurf-tools-wails-windows-amd64.zip`
 - **Build**: install Go, Node, Wails CLI → `wails build` → `build/bin/windsurf-tools-wails.exe`
 - **Repo**: [github.com/shaoyu521/windsurf-Tools](https://github.com/shaoyu521/windsurf-Tools)
+
+---
+
+## 维护者：发布预编译版本
+
+仓库已配置 [GitHub Actions](.github/workflows/release-windows.yml)：当你推送 **`v` 开头** 的 tag（如 `v0.1.0`）时，会在 Windows 上自动执行 `wails build`，并创建/更新 **GitHub Release**，上传附件 **`windsurf-tools-wails-windows-amd64.zip`**（内含 `windsurf-tools-wails.exe`）。
+
+```bash
+git tag v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+请确认仓库 **Settings → Actions → General** 中已启用 Actions，且 **Workflow permissions** 为可读写仓库内容（上传 Release 需要）。
 
 ---
 
