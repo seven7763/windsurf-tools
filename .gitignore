@@ -3,8 +3,7 @@ node_modules
 frontend/dist
 frontend/node_modules
 
-# 勿提交：含本地调试凭证 / 密钥样例
-_quick_key.py
+# 勿提交：含本地调试凭证样例
 test_debug.go
 
 # Cursor / 缓存
