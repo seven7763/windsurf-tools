@@ -11,9 +11,11 @@ import {
   Warning,
 } from '@element-plus/icons-vue'
 import type { Account } from '../types/windsurf'
+import { formatResetCountdownZH } from '../utils/datetimeAsia'
 import {
   formatCompactDate,
   formatDateTime,
+  formatSubscriptionExpiryLine,
   formatMonthlyUsage,
   formatQuota,
   getAccountHealth,
@@ -69,7 +71,10 @@ const monthlyUsage = computed(() => formatMonthlyUsage(props.account))
       <div class="quota-tile">
         <span class="quota-tile__label">日额度</span>
         <strong class="quota-tile__value">{{ formatQuota(props.account.daily_remaining) }}</strong>
-        <small class="quota-tile__meta">重置 {{ formatDateTime(props.account.daily_reset_at) }}</small>
+        <small class="quota-tile__meta">日额度下次刷新（每日 东八区 16:00）{{ formatDateTime(props.account.daily_reset_at) }}</small>
+        <small v-if="props.account.daily_reset_at" class="quota-tile__meta quota-tile__meta--hint">{{
+          formatResetCountdownZH(props.account.daily_reset_at)
+        }}</small>
         <div class="quota-tile__meter">
           <span class="quota-tile__fill" :style="{ width: `${dailyPercent}%` }" />
         </div>
@@ -78,7 +83,10 @@ const monthlyUsage = computed(() => formatMonthlyUsage(props.account))
       <div class="quota-tile">
         <span class="quota-tile__label">周额度</span>
         <strong class="quota-tile__value">{{ formatQuota(props.account.weekly_remaining) }}</strong>
-        <small class="quota-tile__meta">重置 {{ formatDateTime(props.account.weekly_reset_at) }}</small>
+        <small class="quota-tile__meta">周期额度下次刷新（周末 东八区 16:00）{{ formatDateTime(props.account.weekly_reset_at) }}</small>
+        <small v-if="props.account.weekly_reset_at" class="quota-tile__meta quota-tile__meta--hint">{{
+          formatResetCountdownZH(props.account.weekly_reset_at)
+        }}</small>
         <div class="quota-tile__meter">
           <span class="quota-tile__fill quota-tile__fill--cyan" :style="{ width: `${weeklyPercent}%` }" />
         </div>
@@ -107,7 +115,7 @@ const monthlyUsage = computed(() => formatMonthlyUsage(props.account))
 
       <div class="meta-row">
         <Calendar class="meta-row__icon" />
-        <span>到期 {{ formatCompactDate(props.account.subscription_expires_at) }}</span>
+        <span>{{ formatSubscriptionExpiryLine(props.account.subscription_expires_at) }}</span>
         <span class="meta-row__muted">创建 {{ formatCompactDate(props.account.created_at) }}</span>
       </div>
 
@@ -341,6 +349,12 @@ const monthlyUsage = computed(() => formatMonthlyUsage(props.account))
 .quota-tile__meta {
   color: var(--wt-text-muted);
   font-size: 0.82rem;
+}
+
+.quota-tile__meta--hint {
+  font-size: 0.76rem;
+  opacity: 0.92;
+  margin-top: -0.1rem;
 }
 
 .quota-tile__meter {

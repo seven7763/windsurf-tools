@@ -4,7 +4,7 @@ export default {
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
-  darkMode: 'media', // Use system preference for pure iOS native feel
+  darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {

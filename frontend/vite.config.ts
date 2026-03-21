@@ -1,6 +1,12 @@
 import type {Plugin} from 'vite'
+import {readFileSync} from 'fs'
+import {resolve, dirname} from 'path'
+import {fileURLToPath} from 'url'
 import {defineConfig} from 'vite'
 import vue from '@vitejs/plugin-vue'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8')) as {version: string}
 
 /** Wails/WebView2：去掉 module 脚本的 crossorigin，避免嵌入协议下脚本不执行（只剩 CSS/背景网格） */
 function stripModuleScriptCrossorigin(): Plugin {
@@ -16,6 +22,9 @@ function stripModuleScriptCrossorigin(): Plugin {
 export default defineConfig({
   // Wails 嵌入资源必须用相对路径，否则生产环境 /assets/* 会 404，页面空白
   base: './',
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+  },
   plugins: [vue(), stripModuleScriptCrossorigin()],
   server: {
     host: '127.0.0.1',

@@ -1,5 +1,4 @@
-# 推送以 v 开头的 tag（如 v0.1.0）时，在 Windows 上构建并上传到 GitHub Release
-name: Release Windows
+name: Release Cross Platform
 
 on:
   push:
@@ -9,9 +8,32 @@ on:
 permissions:
   contents: write
 
+env:
+  GO_VERSION: '1.24.5'
+  NODE_VERSION: '20'
+  WAILS_VERSION: '2.11.0'
+
 jobs:
   build:
-    runs-on: windows-latest
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-amd64
+            platform: windows/amd64
+            artifact_name: windsurf-tools-wails-windows-amd64
+          - os: macos-13
+            label: macos-intel-amd64
+            platform: darwin/amd64
+            artifact_name: windsurf-tools-wails-macos-intel-amd64
+          - os: macos-14
+            label: macos-apple-silicon-arm64
+            platform: darwin/arm64
+            artifact_name: windsurf-tools-wails-macos-apple-silicon-arm64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,12 +41,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.x'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -34,28 +56,64 @@ jobs:
           "$(go env GOPATH)/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v${{ env.WAILS_VERSION }}
 
       - name: Frontend install
         working-directory: frontend
         run: npm ci
 
       - name: Wails build
-        run: wails build
+        run: wails build -platform ${{ matrix.platform }}
 
-      - name: Package exe, zip and checksums
+      - name: Package Windows artifacts
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $exe = "build/bin/windsurf-tools-wails.exe"
-          Copy-Item -Force $exe "dist/windsurf-tools-wails.exe"
-          $zip = "dist/windsurf-tools-wails-windows-amd64.zip"
-          Compress-Archive -Path "dist/windsurf-tools-wails.exe" -DestinationPath $zip -Force
-          $hExe = (Get-FileHash "dist/windsurf-tools-wails.exe" -Algorithm SHA256).Hash.ToLower()
-          $hZip = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          $sum = "$hExe  windsurf-tools-wails.exe`n$hZip  windsurf-tools-wails-windows-amd64.zip`n"
-          [System.IO.File]::WriteAllText((Join-Path (Get-Location) "dist/SHA256SUMS.txt"), $sum, [System.Text.UTF8Encoding]::new($false))
+          Copy-Item -Force "build/bin/windsurf-tools-wails.exe" "dist/windsurf-tools-wails.exe"
+          Compress-Archive -Path "dist/windsurf-tools-wails.exe" -DestinationPath "dist/windsurf-tools-wails-windows-amd64.zip" -Force
           Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Package macOS artifacts
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [ ! -d "build/bin/windsurf-tools-wails.app" ]; then
+            echo "Missing build/bin/windsurf-tools-wails.app"
+            exit 1
+          fi
+          ditto -c -k --keepParent "build/bin/windsurf-tools-wails.app" "dist/${{ matrix.artifact_name }}.zip"
+          ls -lh dist
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: windsurf-tools-wails-*
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          ls -lh
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -63,6 +121,8 @@ jobs:
           files: |
             dist/windsurf-tools-wails.exe
             dist/windsurf-tools-wails-windows-amd64.zip
+            dist/windsurf-tools-wails-macos-intel-amd64.zip
+            dist/windsurf-tools-wails-macos-apple-silicon-arm64.zip
             dist/SHA256SUMS.txt
           generate_release_notes: true
         env:

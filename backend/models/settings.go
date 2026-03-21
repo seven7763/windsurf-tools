@@ -13,6 +13,30 @@ type Settings struct {
 	QuotaCustomIntervalMinutes int    `json:"quota_custom_interval_minutes"` // 仅 policy=custom 时使用，默认由后端钳制
 	// AutoSwitchPlanFilter 无感「下一席位」计划池：all 不限制；否则逗号分隔多选，如 trial,pro（与 PlanTone 一致）
 	AutoSwitchPlanFilter string `json:"auto_switch_plan_filter"`
+	// AutoSwitchOnQuotaExhausted 在自动同步额度后，若当前 Windsurf 登录账号额度用尽则尝试切到下一席（依赖 windsurf_auth 与号池匹配）
+	AutoSwitchOnQuotaExhausted bool `json:"auto_switch_on_quota_exhausted"`
+	// QuotaHotPollSeconds 开启「用尽切号」时，仅对当前 Windsurf 会话高频拉额度（秒）；号池其余账号只走 QuotaRefreshPolicy 的定期同步，不在此轮询。范围 5～60
+	QuotaHotPollSeconds int `json:"quota_hot_poll_seconds"`
+	// RestartWindsurfAfterSwitch 仅对写入 windsurf_auth.json 的切号生效；MITM 代理换号不触发、一般也无需重启 IDE。运行中的 IDE 会缓存登录态，仅改文件往往不会立即生效
+	RestartWindsurfAfterSwitch bool `json:"restart_windsurf_after_switch"`
+
+	// MinimizeToTray 点击关闭时最小化到系统托盘而不退出（需系统支持托盘图标）
+	MinimizeToTray bool `json:"minimize_to_tray"`
+	// ShowDesktopToolbar 启用桌面小横条模式：小窗口置顶展示当前账号与额度（可配合托盘菜单）
+	ShowDesktopToolbar bool `json:"show_desktop_toolbar"`
+	// SilentStart 启动时不显示主窗口（仍可在托盘打开；也可用命令行 --silent）
+	SilentStart bool `json:"silent_start"`
+
+	// MitmOnly 仅使用 MITM 多号轮换：不写入 windsurf_auth、不在额度用尽时执行「文件切号」（仍同步号池额度与 JWT 供代理使用）
+	MitmOnly bool `json:"mitm_only"`
+	// MitmTunMode 在 UI 中展示 TUN/全局代理（如 Clash）与本机 MITM 共存的说明；不修改网络栈
+	MitmTunMode bool `json:"mitm_tun_mode"`
+
+	// ── MITM 代理 ──
+	// MitmProxyEnabled 启用 MITM 反向代理（hosts劫持 + JWT替换 + 多号轮换）
+	MitmProxyEnabled bool `json:"mitm_proxy_enabled"`
+	// MitmProxyPort MITM 代理监听端口（默认 443）
+	MitmProxyPort int `json:"mitm_proxy_port"`
 }
 
 func DefaultSettings() Settings {
@@ -25,5 +49,15 @@ func DefaultSettings() Settings {
 		QuotaRefreshPolicy:         "hybrid",
 		QuotaCustomIntervalMinutes: 360,
 		AutoSwitchPlanFilter:       "all",
+		AutoSwitchOnQuotaExhausted: true,
+		QuotaHotPollSeconds:        12,
+		RestartWindsurfAfterSwitch: true,
+		MinimizeToTray:             false,
+		ShowDesktopToolbar:         false,
+		SilentStart:                false,
+		MitmOnly:                   false,
+		MitmTunMode:                false,
+		MitmProxyEnabled:           false,
+		MitmProxyPort:              443,
 	}
 }

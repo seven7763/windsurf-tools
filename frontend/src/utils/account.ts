@@ -4,6 +4,7 @@ type HealthTone = Exclude<HealthFilter, 'all'>
 type PlanTone = Exclude<PlanFilter, 'all'>
 
 const DASH = '—'
+const ASIA_SHANGHAI = 'Asia/Shanghai'
 
 function parseDateValue(value?: string): number {
   if (!value) {
@@ -25,10 +26,12 @@ export function formatDateTime(value?: string, fallback = DASH): string {
   }
 
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: ASIA_SHANGHAI,
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(date)
 }
 
@@ -43,9 +46,18 @@ export function formatCompactDate(value?: string, fallback = DASH): string {
   }
 
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: ASIA_SHANGHAI,
     month: 'numeric',
     day: 'numeric',
   }).format(date)
+}
+
+/** 订阅/试用结束时间；空时提示同步（后端从 GetPlanStatus / JWT 拉取） */
+export function formatSubscriptionExpiryLine(value?: string): string {
+  if (!value) {
+    return '订阅/试用到期 — 暂无（请先「同步额度」）'
+  }
+  return `订阅/试用到期（东八区） ${formatDateTime(value)}`
 }
 
 export function truncateMiddle(value?: string, head = 10, tail = 6): string {

@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"sync"
 	"windsurf-tools-wails/backend/models"
+	"windsurf-tools-wails/backend/paths"
 )
 
 type Store struct {
+	dataDir      string
 	accountsFile string
 	settingsFile string
 	mu           sync.RWMutex
@@ -17,18 +19,19 @@ type Store struct {
 	settings     models.Settings
 }
 
-func NewStore() (*Store, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config dir: %w", err)
-	}
+// DataDir 返回号池与 settings.json 所在目录（跨平台统一为 UserConfigDir/WindsurfTools）。
+func (s *Store) DataDir() string {
+	return s.dataDir
+}
 
-	appDir := filepath.Join(configDir, "windsurf-tools-wails")
+// NewStoreInPaths 在指定目录创建/加载账号与设置文件（accounts.json、settings.json）。
+func NewStoreInPaths(appDir string) (*Store, error) {
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	s := &Store{
+		dataDir:      appDir,
 		accountsFile: filepath.Join(appDir, "accounts.json"),
 		settingsFile: filepath.Join(appDir, "settings.json"),
 		accounts:     make([]models.Account, 0),
@@ -39,6 +42,14 @@ func NewStore() (*Store, error) {
 	return s, nil
 }
 
+func NewStore() (*Store, error) {
+	dir, err := paths.ResolveAppConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	return NewStoreInPaths(dir)
+}
+
 func (s *Store) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -46,7 +57,19 @@ func (s *Store) load() {
 		_ = json.Unmarshal(b, &s.accounts)
 	}
 	if b, err := os.ReadFile(s.settingsFile); err == nil {
+		var raw map[string]json.RawMessage
+		_ = json.Unmarshal(b, &raw)
 		_ = json.Unmarshal(b, &s.settings)
+		// 旧版 settings.json 无此字段时默认开启（与 models.DefaultSettings 一致）
+		if _, ok := raw["auto_switch_on_quota_exhausted"]; !ok {
+			s.settings.AutoSwitchOnQuotaExhausted = true
+		}
+		if _, ok := raw["quota_hot_poll_seconds"]; !ok {
+			s.settings.QuotaHotPollSeconds = 12
+		}
+		if _, ok := raw["restart_windsurf_after_switch"]; !ok {
+			s.settings.RestartWindsurfAfterSwitch = true
+		}
 	}
 }
 
@@ -88,15 +111,16 @@ func (s *Store) GetAllAccounts() []models.Account {
 	return copied
 }
 
-func (s *Store) GetAccount(id string) (*models.Account, error) {
+// GetAccount 返回账号值的拷贝，避免调用方持有指向内部切片的指针导致数据竞争。
+func (s *Store) GetAccount(id string) (models.Account, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for i := range s.accounts {
 		if s.accounts[i].ID == id {
-			return &s.accounts[i], nil
+			return s.accounts[i], nil
 		}
 	}
-	return nil, fmt.Errorf("account not found")
+	return models.Account{}, fmt.Errorf("account not found")
 }
 
 func (s *Store) UpdateAccount(acc models.Account) error {

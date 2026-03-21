@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestDecodeJWTClaims(t *testing.T) {
@@ -55,7 +56,7 @@ func TestParsePlanStatusPayload(t *testing.T) {
 		WeeklyQuotaRemainingPercent: &weekly,
 		DailyQuotaResetAtUnix:       1774080000,
 		WeeklyQuotaResetAtUnix:      1774166400,
-		PlanEnd:                     "2026-03-29T08:00:00Z",
+		PlanEnd:                     json.RawMessage(`"2026-03-29T08:00:00Z"`),
 		PlanInfo: struct {
 			PlanName        string `json:"planName"`
 			BillingStrategy string `json:"billingStrategy"`
@@ -64,6 +65,10 @@ func TestParsePlanStatusPayload(t *testing.T) {
 			BillingStrategy: "BILLING_STRATEGY_SUBSCRIPTION",
 		},
 	})
+
+	if profile.SubscriptionExpiresAt != "2026-03-29T08:00:00Z" {
+		t.Fatalf("SubscriptionExpiresAt = %q, want RFC3339 from planEnd string", profile.SubscriptionExpiresAt)
+	}
 
 	if profile.PlanName != "Pro" {
 		t.Fatalf("PlanName = %q, want %q", profile.PlanName, "Pro")
@@ -82,6 +87,41 @@ func TestParsePlanStatusPayload(t *testing.T) {
 	}
 	if profile.WeeklyQuotaRemaining == nil || *profile.WeeklyQuotaRemaining != 88 {
 		t.Fatalf("WeeklyQuotaRemaining = %#v", profile.WeeklyQuotaRemaining)
+	}
+}
+
+func TestPickSubscriptionExpiresFromPlanStatus_StartVsEnd(t *testing.T) {
+	ps := planStatusPayload{
+		PlanStart: json.RawMessage(`"2026-03-01T08:00:00Z"`),
+		PlanEnd:   json.RawMessage(`"2026-04-15T08:00:00Z"`),
+	}
+	got := pickSubscriptionExpiresFromPlanStatus(ps)
+	want := "2026-04-15T08:00:00Z"
+	if got != want {
+		t.Fatalf("pickSubscriptionExpiresFromPlanStatus = %q, want %q", got, want)
+	}
+}
+
+func TestPickSubscriptionExpiresFromPlanStatus_ExplicitPeriodEnd(t *testing.T) {
+	ps := planStatusPayload{
+		PlanStart:             json.RawMessage(`"2026-03-01T08:00:00Z"`),
+		PlanEnd:               json.RawMessage(`"2026-03-10T08:00:00Z"`),
+		SubscriptionPeriodEnd: json.RawMessage(`"2026-06-01T00:00:00Z"`),
+	}
+	got := pickSubscriptionExpiresFromPlanStatus(ps)
+	if got != "2026-06-01T00:00:00Z" {
+		t.Fatalf("pickSubscriptionExpiresFromPlanStatus = %q, want explicit subscriptionPeriodEnd", got)
+	}
+}
+
+func TestParsePlanStatusPayload_PlanEndUnix(t *testing.T) {
+	sec := int64(1773831056)
+	profile := parsePlanStatusPayload(planStatusPayload{
+		PlanEnd: json.RawMessage(`1773831056`),
+	})
+	want := time.Unix(sec, 0).UTC().Format(time.RFC3339)
+	if profile.SubscriptionExpiresAt != want {
+		t.Fatalf("SubscriptionExpiresAt = %q, want %q (unix planEnd)", profile.SubscriptionExpiresAt, want)
 	}
 }
 

@@ -1,7 +1,7 @@
-// 封装对 window.go 等后端的绑定调用
-// Wails types map automatically to TS interfaces inside the auto-generated wailsjs folder generally.
-// Here we define clean wrappers and types based on app.go
-
+/**
+ * 对 `wailsjs/go/main/App` 的单一入口封装（业务页请优先用 `APIInfo`）。
+ * MITM 相关方法已一并挂到 `APIInfo`，与直连 `App` 等价，见 `README.md`。
+ */
 import * as AppHooks from '../../wailsjs/go/main/App';
 import * as Models from '../../wailsjs/go/models';
 
@@ -16,6 +16,8 @@ export interface ImportResult {
 
 export const APIInfo = {
   getAllAccounts: AppHooks.GetAllAccounts,
+  /** 号池与 settings 所在目录（跨平台 WindsurfTools） */
+  getAppStoragePath: AppHooks.GetAppStoragePath,
   deleteAccount: AppHooks.DeleteAccount,
   deleteExpiredAccounts: AppHooks.DeleteExpiredAccounts,
   deleteFreePlanAccounts: AppHooks.DeleteFreePlanAccounts,
@@ -40,6 +42,17 @@ export const APIInfo = {
 
   findWindsurfPath: AppHooks.FindWindsurfPath,
   applySeamlessPatch: AppHooks.ApplySeamlessPatch,
+  applyToolbarLayout: AppHooks.ApplyToolbarLayout,
+  restoreMainWindowLayout: AppHooks.RestoreMainWindowLayout,
   restoreSeamlessPatch: AppHooks.RestoreSeamlessPatch,
   checkPatchStatus: AppHooks.CheckPatchStatus,
+
+  // MITM（与 AppHooks.* 一一对应，便于统一从 APIInfo 调用）
+  startMitmProxy: AppHooks.StartMitmProxy,
+  stopMitmProxy: AppHooks.StopMitmProxy,
+  getMitmProxyStatus: AppHooks.GetMitmProxyStatus,
+  setupMitmCA: AppHooks.SetupMitmCA,
+  setupMitmHosts: AppHooks.SetupMitmHosts,
+  teardownMitm: AppHooks.TeardownMitm,
+  getMitmCAPath: AppHooks.GetMitmCAPath,
 };

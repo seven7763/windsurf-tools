@@ -39,7 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const base = normalizeSettings(settings.value ?? createDefaultSettings())
     const form = settingsToForm(base)
     form.auto_switch_plan_filter = normalizeSwitchPlanFilter(filter)
-    await updateSettings(formToSettings(form, sys.patchStatus))
+    await updateSettings(formToSettings(form, sys.patchStatus, base))
   }
 
   return {

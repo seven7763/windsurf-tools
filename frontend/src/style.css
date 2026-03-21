@@ -9,11 +9,9 @@
     color: theme('colors.ios.text');
   }
 
-  @media (prefers-color-scheme: dark) {
-    html, body {
-      background-color: theme('colors.ios.bgDark');
-      color: theme('colors.ios.textDark');
-    }
+  html.dark, html.dark body {
+    background-color: theme('colors.ios.bgDark');
+    color: theme('colors.ios.textDark');
   }
 
   #app {
@@ -28,13 +26,11 @@
     radial-gradient(ellipse 100% 60% at 0% 100%, rgba(52, 199, 89, 0.06), transparent 45%);
 }
 
-@media (prefers-color-scheme: dark) {
-  .app-root {
-    background:
-      radial-gradient(ellipse 120% 80% at 100% 0%, rgba(10, 132, 255, 0.12), transparent 50%),
-      radial-gradient(ellipse 100% 60% at 0% 100%, rgba(48, 209, 88, 0.08), transparent 45%),
-      theme('colors.ios.bgDark');
-  }
+html.dark .app-root {
+  background:
+    radial-gradient(ellipse 120% 80% at 100% 0%, rgba(10, 132, 255, 0.12), transparent 50%),
+    radial-gradient(ellipse 100% 60% at 0% 100%, rgba(48, 209, 88, 0.08), transparent 45%),
+    theme('colors.ios.bgDark');
 }
 
 @layer components {
@@ -52,15 +48,94 @@
     box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.04), 0 0 1px 0 rgba(0,0,0,0.1) inset;
   }
   
-  @media (prefers-color-scheme: dark) {
-    .ios-glass {
-      @apply bg-[#1C1C1E]/75;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 32px -4px rgba(0, 0, 0, 0.25);
-    }
+  html.dark .ios-glass {
+    @apply bg-[#1C1C1E]/75;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 32px -4px rgba(0, 0, 0, 0.25);
   }
 
   /* iOS Button Base with Spring Curve */
   .ios-btn {
     @apply active:scale-[0.96] transition-all duration-[250ms] ease-[cubic-bezier(0.2,0.8,0.2,1)];
+  }
+
+  /** 骨架屏：流动高光（优于纯 pulse） */
+  .ios-skeleton {
+    @apply relative overflow-hidden rounded-xl;
+    background: linear-gradient(
+      110deg,
+      rgba(0, 0, 0, 0.06) 0%,
+      rgba(0, 0, 0, 0.06) 40%,
+      rgba(0, 0, 0, 0.11) 50%,
+      rgba(0, 0, 0, 0.06) 60%,
+      rgba(0, 0, 0, 0.06) 100%
+    );
+    background-size: 220% 100%;
+    animation: ios-skeleton-shimmer 1.45s ease-in-out infinite;
+  }
+
+  html.dark .ios-skeleton {
+    background: linear-gradient(
+      110deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0.07) 40%,
+      rgba(255, 255, 255, 0.14) 50%,
+      rgba(255, 255, 255, 0.07) 60%,
+      rgba(255, 255, 255, 0.07) 100%
+    );
+    background-size: 220% 100%;
+  }
+
+  /** 页面块入场（与骨架同时用） */
+  .ios-page-enter {
+    animation: ios-page-enter 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  /** 主按钮/行内加载图标：略慢、更顺的旋转 */
+  .ios-spinner {
+    animation: ios-spin 0.85s linear infinite;
+  }
+}
+
+@keyframes ios-skeleton-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes ios-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ios-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-skeleton {
+    animation: none;
+    background: rgba(0, 0, 0, 0.06);
+  }
+  html.dark .ios-skeleton {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .ios-page-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .ios-spinner {
+    animation: ios-spin 1s linear infinite;
   }
 }

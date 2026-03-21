@@ -49,6 +49,8 @@ export interface SettingsForm {
   auto_refresh_quotas: boolean
   quota_refresh_policy: string
   quota_custom_interval_minutes: number
+  auto_switch_plan_filter?: string
+  auto_switch_on_quota_exhausted?: boolean
 }
 
 export interface PatchResult {

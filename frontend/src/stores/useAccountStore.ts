@@ -12,6 +12,8 @@ export const useAccountStore = defineStore('account', () => {
     isLoading.value = true
     try {
       const data = await APIInfo.getAllAccounts()
+      // 让出主线程一帧，减轻大列表回填时的界面卡顿
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       accounts.value = data || []
     } catch (e) {
       console.error('Failed to fetch accounts:', e)

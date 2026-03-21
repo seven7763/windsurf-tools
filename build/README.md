@@ -20,6 +20,10 @@ The directory contains the following files:
 - `Info.plist` - the main plist file used for Mac builds. It is used when building using `wails build`.
 - `Info.dev.plist` - same as the main plist file but used when building using `wails dev`.
 
+Repository release workflow note:
+
+- GitHub Actions currently builds separate macOS release assets for Intel (`darwin/amd64`) and Apple Silicon (`darwin/arm64`).
+
 ## Windows
 
 The `windows` directory contains the manifest and rc files used when building with `wails build`.
@@ -33,3 +37,7 @@ build with `wails build`.
 - `info.json` - Application details used for Windows builds. The data here will be used by the Windows installer,
   as well as the application itself (right click the exe -> properties -> details)
 - `wails.exe.manifest` - The main application manifest file.
+
+## Preview Images
+
+- `browser-preview.png` - repo-facing preview image kept in sync with `docs/images/dashboard-preview.png`.

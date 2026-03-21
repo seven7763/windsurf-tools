@@ -10,6 +10,10 @@ export function ApplySeamlessPatch(arg1) {
   return window['go']['main']['App']['ApplySeamlessPatch'](arg1);
 }
 
+export function ApplyToolbarLayout(arg1) {
+  return window['go']['main']['App']['ApplyToolbarLayout'](arg1);
+}
+
 export function AutoSwitchToNext(arg1, arg2) {
   return window['go']['main']['App']['AutoSwitchToNext'](arg1, arg2);
 }
@@ -38,8 +42,20 @@ export function GetAllAccounts() {
   return window['go']['main']['App']['GetAllAccounts']();
 }
 
+export function GetAppStoragePath() {
+  return window['go']['main']['App']['GetAppStoragePath']();
+}
+
 export function GetCurrentWindsurfAuth() {
   return window['go']['main']['App']['GetCurrentWindsurfAuth']();
+}
+
+export function GetMitmCAPath() {
+  return window['go']['main']['App']['GetMitmCAPath']();
+}
+
+export function GetMitmProxyStatus() {
+  return window['go']['main']['App']['GetMitmProxyStatus']();
 }
 
 export function GetSettings() {
@@ -78,12 +94,40 @@ export function RefreshAllTokens() {
   return window['go']['main']['App']['RefreshAllTokens']();
 }
 
+export function RestoreMainWindowLayout() {
+  return window['go']['main']['App']['RestoreMainWindowLayout']();
+}
+
 export function RestoreSeamlessPatch(arg1) {
   return window['go']['main']['App']['RestoreSeamlessPatch'](arg1);
 }
 
+export function SetSilentFromFlag(arg1) {
+  return window['go']['main']['App']['SetSilentFromFlag'](arg1);
+}
+
+export function SetupMitmCA() {
+  return window['go']['main']['App']['SetupMitmCA']();
+}
+
+export function SetupMitmHosts() {
+  return window['go']['main']['App']['SetupMitmHosts']();
+}
+
+export function StartMitmProxy() {
+  return window['go']['main']['App']['StartMitmProxy']();
+}
+
+export function StopMitmProxy() {
+  return window['go']['main']['App']['StopMitmProxy']();
+}
+
 export function SwitchAccount(arg1) {
   return window['go']['main']['App']['SwitchAccount'](arg1);
+}
+
+export function TeardownMitm() {
+  return window['go']['main']['App']['TeardownMitm']();
 }
 
 export function UpdateSettings(arg1) {

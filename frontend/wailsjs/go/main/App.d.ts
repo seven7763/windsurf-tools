@@ -8,6 +8,8 @@ export function AddSingleAccount(arg1:string,arg2:string,arg3:string):Promise<ma
 
 export function ApplySeamlessPatch(arg1:string):Promise<services.PatchResult>;
 
+export function ApplyToolbarLayout(arg1:boolean):Promise<void>;
+
 export function AutoSwitchToNext(arg1:string,arg2:string):Promise<string>;
 
 export function CheckPatchStatus(arg1:string):Promise<boolean>;
@@ -22,7 +24,13 @@ export function FindWindsurfPath():Promise<string>;
 
 export function GetAllAccounts():Promise<Array<models.Account>>;
 
+export function GetAppStoragePath():Promise<string>;
+
 export function GetCurrentWindsurfAuth():Promise<services.WindsurfAuthJSON>;
+
+export function GetMitmCAPath():Promise<string>;
+
+export function GetMitmProxyStatus():Promise<services.MitmProxyStatus>;
 
 export function GetSettings():Promise<models.Settings>;
 
@@ -42,8 +50,22 @@ export function RefreshAllQuotas():Promise<Record<string, string>>;
 
 export function RefreshAllTokens():Promise<Record<string, string>>;
 
+export function RestoreMainWindowLayout():Promise<void>;
+
 export function RestoreSeamlessPatch(arg1:string):Promise<void>;
 
+export function SetSilentFromFlag(arg1:boolean):Promise<void>;
+
+export function SetupMitmCA():Promise<void>;
+
+export function SetupMitmHosts():Promise<void>;
+
+export function StartMitmProxy():Promise<void>;
+
+export function StopMitmProxy():Promise<void>;
+
 export function SwitchAccount(arg1:string):Promise<void>;
+
+export function TeardownMitm():Promise<void>;
 
 export function UpdateSettings(arg1:models.Settings):Promise<void>;

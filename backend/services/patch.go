@@ -156,7 +156,7 @@ func (p *PatchService) ApplyPatch(windsurfPath string) (*PatchResult, error) {
 	}
 
 	// 6. 重启 Windsurf
-	_ = restartWindsurf()
+	_ = restartWindsurfFromInstall("")
 
 	return &PatchResult{
 		Success:       true,
@@ -180,8 +180,13 @@ func (p *PatchService) RestorePatch(windsurfPath string) error {
 		return fmt.Errorf("还原失败: %w", err)
 	}
 
-	_ = restartWindsurf()
+	_ = restartWindsurfFromInstall("")
 	return nil
+}
+
+// RestartWindsurfFromInstall 结束 Windsurf 进程并重新启动。installRoot 为安装目录（内含 Windsurf.exe）或可执行文件完整路径；空则使用 Windows 默认 LocalAppData 路径。
+func (p *PatchService) RestartWindsurfFromInstall(installRoot string) error {
+	return restartWindsurfFromInstall(installRoot)
 }
 
 // CheckPatchStatus checks whether the patch is currently applied
@@ -247,21 +252,25 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0644)
 }
 
-func restartWindsurf() error {
+func restartWindsurfFromInstall(installRoot string) error {
 	switch runtime.GOOS {
 	case "windows":
-		// 关闭
-		cmd := exec.Command("taskkill", "/F", "/IM", "Windsurf.exe")
-		_ = cmd.Run()
+		killCmd := exec.Command("taskkill", "/F", "/IM", "Windsurf.exe")
+		hideWindow(killCmd)
+		_ = killCmd.Run()
 		time.Sleep(2 * time.Second)
 
-		// 从常见位置启动
-		localAppData := os.Getenv("LOCALAPPDATA")
-		exePath := filepath.Join(localAppData, "Programs", "Windsurf", "Windsurf.exe")
-		if _, err := os.Stat(exePath); err == nil {
-			return exec.Command("cmd", "/C", "start", "", exePath).Start()
+		exePath := WindsurfInstallExePath(installRoot)
+		if exePath == "" {
+			localAppData := os.Getenv("LOCALAPPDATA")
+			exePath = filepath.Join(localAppData, "Programs", "Windsurf", "Windsurf.exe")
 		}
-		return fmt.Errorf("未找到Windsurf可执行文件")
+		if _, err := os.Stat(exePath); err != nil {
+			return fmt.Errorf("未找到Windsurf可执行文件")
+		}
+		startCmd := exec.Command("cmd", "/C", "start", "", exePath)
+		hideWindow(startCmd)
+		return startCmd.Start()
 
 	case "darwin":
 		_ = exec.Command("pkill", "-f", "Windsurf").Run()

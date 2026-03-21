@@ -1,9 +1,11 @@
 /** 单批条数：控制单次 Wails 调用时长，块之间让出渲染 */
-export const IMPORT_CHUNK_SIZE = 6
+export const IMPORT_CHUNK_SIZE = 8
 
 export function yieldToUI(): Promise<void> {
   return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve())
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0)
+    })
   })
 }
 

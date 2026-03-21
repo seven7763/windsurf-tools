@@ -146,6 +146,16 @@ export namespace models {
 	    quota_refresh_policy: string;
 	    quota_custom_interval_minutes: number;
 	    auto_switch_plan_filter: string;
+	    auto_switch_on_quota_exhausted: boolean;
+	    quota_hot_poll_seconds: number;
+	    restart_windsurf_after_switch: boolean;
+	    minimize_to_tray: boolean;
+	    show_desktop_toolbar: boolean;
+	    silent_start: boolean;
+	    mitm_only: boolean;
+	    mitm_tun_mode: boolean;
+	    mitm_proxy_enabled: boolean;
+	    mitm_proxy_port: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -163,6 +173,16 @@ export namespace models {
 	        this.quota_refresh_policy = source["quota_refresh_policy"];
 	        this.quota_custom_interval_minutes = source["quota_custom_interval_minutes"];
 	        this.auto_switch_plan_filter = source["auto_switch_plan_filter"];
+	        this.auto_switch_on_quota_exhausted = source["auto_switch_on_quota_exhausted"];
+	        this.quota_hot_poll_seconds = source["quota_hot_poll_seconds"];
+	        this.restart_windsurf_after_switch = source["restart_windsurf_after_switch"];
+	        this.minimize_to_tray = source["minimize_to_tray"];
+	        this.show_desktop_toolbar = source["show_desktop_toolbar"];
+	        this.silent_start = source["silent_start"];
+	        this.mitm_only = source["mitm_only"];
+	        this.mitm_tun_mode = source["mitm_tun_mode"];
+	        this.mitm_proxy_enabled = source["mitm_proxy_enabled"];
+	        this.mitm_proxy_port = source["mitm_proxy_port"];
 	    }
 	}
 
@@ -170,6 +190,72 @@ export namespace models {
 
 export namespace services {
 	
+	export class PoolKeyInfo {
+	    key_short: string;
+	    healthy: boolean;
+	    has_jwt: boolean;
+	    request_count: number;
+	    success_count: number;
+	    total_exhausted: number;
+	    is_current: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PoolKeyInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key_short = source["key_short"];
+	        this.healthy = source["healthy"];
+	        this.has_jwt = source["has_jwt"];
+	        this.request_count = source["request_count"];
+	        this.success_count = source["success_count"];
+	        this.total_exhausted = source["total_exhausted"];
+	        this.is_current = source["is_current"];
+	    }
+	}
+	export class MitmProxyStatus {
+	    running: boolean;
+	    port: number;
+	    hosts_mapped: boolean;
+	    ca_installed: boolean;
+	    current_key: string;
+	    pool_status: PoolKeyInfo[];
+	    total_requests: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MitmProxyStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.hosts_mapped = source["hosts_mapped"];
+	        this.ca_installed = source["ca_installed"];
+	        this.current_key = source["current_key"];
+	        this.pool_status = this.convertValues(source["pool_status"], PoolKeyInfo);
+	        this.total_requests = source["total_requests"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class PatchResult {
 	    success: boolean;
 	    already_patched: boolean;
@@ -190,6 +276,7 @@ export namespace services {
 	        this.message = source["message"];
 	    }
 	}
+	
 	export class WindsurfAuthJSON {
 	    token: string;
 	    email?: string;

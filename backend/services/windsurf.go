@@ -109,7 +109,12 @@ type planStatusPayload struct {
 	WeeklyQuotaRemainingPercent *float64               `json:"weeklyQuotaRemainingPercent"`
 	DailyQuotaResetAtUnix       int64                  `json:"dailyQuotaResetAtUnix"`
 	WeeklyQuotaResetAtUnix      int64                  `json:"weeklyQuotaResetAtUnix"`
-	PlanEnd                     string                 `json:"planEnd"`
+	PlanEnd                     json.RawMessage        `json:"planEnd"`
+	PlanStart                   json.RawMessage        `json:"planStart"`
+	SubscriptionPeriodEnd       json.RawMessage        `json:"subscriptionPeriodEnd"`
+	CurrentPeriodEnd            json.RawMessage        `json:"currentPeriodEnd"`
+	PlanExpiresAt               json.RawMessage        `json:"planExpiresAt"`
+	SubscriptionExpiresAtJSON   json.RawMessage        `json:"subscriptionExpiresAt"`
 	TopUpStatus                 map[string]interface{} `json:"topUpStatus"`
 	PlanInfo                    struct {
 		PlanName        string `json:"planName"`
@@ -340,7 +345,7 @@ func (s *WindsurfService) GetPlanStatusJSON(token string) (*AccountProfile, erro
 	if payload.PlanStatus.PlanInfo.PlanName == "" &&
 		payload.PlanStatus.DailyQuotaRemainingPercent == nil &&
 		payload.PlanStatus.WeeklyQuotaRemainingPercent == nil &&
-		payload.PlanStatus.PlanEnd == "" &&
+		len(bytes.TrimSpace(payload.PlanStatus.PlanEnd)) == 0 &&
 		payload.PlanStatus.AvailablePromptCredits == 0 &&
 		payload.PlanStatus.AvailableFlowCredits == 0 &&
 		payload.PlanStatus.UsedPromptCredits == 0 &&
@@ -411,11 +416,80 @@ func (s *WindsurfService) DecodeJWTClaims(token string) (*JWTClaims, error) {
 		Name:                   stringValue(raw["name"]),
 		Pro:                    boolValue(raw["pro"]),
 		TeamsTier:              stringValue(raw["teams_tier"]),
-		TrialEnd:               normalizeQuotedString(stringValue(raw["windsurf_pro_trial_end_time"])),
+		TrialEnd:               jwtSubscriptionEndFromRaw(raw),
 		MaxPremiumChatMessages: int(numberValue(raw["max_num_premium_chat_messages"])),
 		AuthUID:                stringValue(raw["auth_uid"]),
 	}
 	return claims, nil
+}
+
+// jwtSubscriptionEndFromRaw 合并试用/订阅结束时间：官方 JWT 曾只用 windsurf_pro_trial_end_time，部分账号可能用其它字段。
+func jwtSubscriptionEndFromRaw(raw map[string]interface{}) string {
+	keys := []string{
+		"windsurf_pro_trial_end_time",
+		"windsurf_subscription_plan_end_time",
+		"subscription_expires_at",
+		"subscription_end_time",
+		"plan_end_time",
+	}
+	for _, k := range keys {
+		v, ok := raw[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch x := v.(type) {
+		case string:
+			if s := normalizeQuotedString(x); s != "" {
+				return s
+			}
+		case float64:
+			if sec := unixLikeToRFC3339(x); sec != "" {
+				return sec
+			}
+		case json.Number:
+			f, err := x.Float64()
+			if err == nil {
+				if sec := unixLikeToRFC3339(f); sec != "" {
+					return sec
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func unixLikeToRFC3339(n float64) string {
+	if n <= 0 {
+		return ""
+	}
+	sec := n
+	if n > 1e12 {
+		sec = n / 1000
+	}
+	if sec < 1e9 {
+		return ""
+	}
+	return time.Unix(int64(sec), 0).UTC().Format(time.RFC3339)
+}
+
+// parseFlexiblePlanEnd 解析 GetPlanStatus 的 planEnd：可能是 RFC3339 字符串，也可能是 Unix 秒/毫秒数字（直接 JSON 解到 string 会失败导致整包解析报错）。
+func parseFlexiblePlanEnd(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return ""
+		}
+		return normalizeQuotedString(s)
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return ""
+	}
+	return unixLikeToRFC3339(n)
 }
 
 // ── 辅助函数 ──
@@ -462,7 +536,7 @@ func parsePlanStatusPayload(ps planStatusPayload) *AccountProfile {
 		WeeklyQuotaRemaining:  ps.WeeklyQuotaRemainingPercent,
 		DailyResetAt:          unixToRFC3339(ps.DailyQuotaResetAtUnix),
 		WeeklyResetAt:         unixToRFC3339(ps.WeeklyQuotaResetAtUnix),
-		SubscriptionExpiresAt: normalizeQuotedString(ps.PlanEnd),
+		SubscriptionExpiresAt: pickSubscriptionExpiresFromPlanStatus(ps),
 	}
 
 	total := creditsToUnits(ps.AvailablePromptCredits) + creditsToUnits(ps.AvailableFlowCredits)
@@ -478,6 +552,14 @@ func parsePlanStatusPayload(ps planStatusPayload) *AccountProfile {
 
 	if profile.PlanName == "" {
 		profile.PlanName = "Free"
+	}
+	// API 有时不传日/周百分比，但可用额度已为 0 且已有消耗：补成 0%% 以便上层判定用尽并切号
+	if profile.DailyQuotaRemaining == nil && profile.WeeklyQuotaRemaining == nil {
+		if total == 0 && used > 0 {
+			z := 0.0
+			profile.DailyQuotaRemaining = &z
+			profile.WeeklyQuotaRemaining = &z
+		}
 	}
 	return profile
 }
@@ -516,7 +598,7 @@ func parseUserStatusPayload(payload []byte) *AccountProfile {
 			v := float64(plan.firstVarint(15))
 			profile.WeeklyQuotaRemaining = &v
 		}
-		if planEnd := firstNonEmptyTimestamp(plan.firstBytes(2), plan.firstBytes(3)); planEnd != "" {
+		if planEnd := subscriptionEndFromPlanProto(plan); planEnd != "" {
 			profile.SubscriptionExpiresAt = planEnd
 		}
 		profile.DailyResetAt = unixToRFC3339(int64(plan.firstVarint(17)))
@@ -653,13 +735,89 @@ func parseProtoTimestamp(data []byte) string {
 	return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
 }
 
-func firstNonEmptyTimestamp(candidates ...[]byte) string {
-	for _, candidate := range candidates {
-		if ts := parseProtoTimestamp(candidate); ts != "" {
-			return ts
+// pickSubscriptionExpiresFromPlanStatus 合并 GetPlanStatus(JSON) 多种时间字段。
+// 部分环境 planEnd 实为当前计费周期起点；若同时存在 planStart，取二者中较晚者作为更接近「到期」的时间。
+func pickSubscriptionExpiresFromPlanStatus(ps planStatusPayload) string {
+	for _, raw := range []json.RawMessage{
+		ps.SubscriptionPeriodEnd,
+		ps.CurrentPeriodEnd,
+		ps.PlanExpiresAt,
+		ps.SubscriptionExpiresAtJSON,
+	} {
+		if s := parseFlexiblePlanEnd(raw); s != "" {
+			return s
 		}
 	}
-	return ""
+	start := parseFlexiblePlanEnd(ps.PlanStart)
+	end := parseFlexiblePlanEnd(ps.PlanEnd)
+	if start != "" && end != "" {
+		return laterRFC3339String(start, end)
+	}
+	if end != "" {
+		return end
+	}
+	return start
+}
+
+func laterRFC3339String(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	ta, oka := parseRFC3339Flexible(a)
+	tb, okb := parseRFC3339Flexible(b)
+	if !oka || !okb {
+		return b
+	}
+	if tb.After(ta) {
+		return b
+	}
+	return a
+}
+
+func parseRFC3339Flexible(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func latestRFC3339Strings(values []string) string {
+	var best time.Time
+	var bestS string
+	for _, s := range values {
+		if s == "" {
+			continue
+		}
+		t, ok := parseRFC3339Flexible(s)
+		if !ok {
+			continue
+		}
+		if bestS == "" || t.After(best) {
+			best = t
+			bestS = s
+		}
+	}
+	return bestS
+}
+
+// subscriptionEndFromPlanProto 取 plan 内 field 2/3 的 google.protobuf.Timestamp 中较晚者（避免原先「先取 2」把周期起点当到期）。
+func subscriptionEndFromPlanProto(plan protoMessage) string {
+	var candidates []string
+	for _, n := range []uint64{2, 3} {
+		if ts := parseProtoTimestamp(plan.firstBytes(n)); ts != "" {
+			candidates = append(candidates, ts)
+		}
+	}
+	return latestRFC3339Strings(candidates)
 }
 
 func creditsToUnits(v int) int {

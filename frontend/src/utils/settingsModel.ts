@@ -45,6 +45,16 @@ export function createDefaultSettings(): models.Settings {
     quota_refresh_policy: 'hybrid',
     quota_custom_interval_minutes: 360,
     auto_switch_plan_filter: 'all',
+    auto_switch_on_quota_exhausted: true,
+    quota_hot_poll_seconds: 12,
+    restart_windsurf_after_switch: true,
+    minimize_to_tray: false,
+    show_desktop_toolbar: false,
+    silent_start: false,
+    mitm_only: false,
+    mitm_tun_mode: false,
+    mitm_proxy_enabled: false,
+    mitm_proxy_port: 443,
   })
 }
 
@@ -65,6 +75,23 @@ export function normalizeSettings(raw: unknown): models.Settings {
     quota_refresh_policy: String(s.quota_refresh_policy || 'hybrid'),
     quota_custom_interval_minutes: clampQuotaMinutes(Number(s.quota_custom_interval_minutes)),
     auto_switch_plan_filter: normalizeSwitchPlanFilter(String(s.auto_switch_plan_filter ?? 'all')),
+    auto_switch_on_quota_exhausted:
+      'auto_switch_on_quota_exhausted' in s ? Boolean(s.auto_switch_on_quota_exhausted) : true,
+    quota_hot_poll_seconds: clampHotPollSeconds(
+      'quota_hot_poll_seconds' in s ? Number(s.quota_hot_poll_seconds) : 12,
+    ),
+    restart_windsurf_after_switch:
+      'restart_windsurf_after_switch' in s ? Boolean(s.restart_windsurf_after_switch) : true,
+    minimize_to_tray: Boolean(s.minimize_to_tray),
+    show_desktop_toolbar: Boolean(s.show_desktop_toolbar),
+    silent_start: 'silent_start' in s ? Boolean(s.silent_start) : base.silent_start,
+    mitm_only: 'mitm_only' in s ? Boolean(s.mitm_only) : base.mitm_only,
+    mitm_tun_mode: 'mitm_tun_mode' in s ? Boolean(s.mitm_tun_mode) : base.mitm_tun_mode,
+    mitm_proxy_enabled: 'mitm_proxy_enabled' in s ? Boolean(s.mitm_proxy_enabled) : base.mitm_proxy_enabled,
+    mitm_proxy_port:
+      'mitm_proxy_port' in s && Number(s.mitm_proxy_port) > 0
+        ? Math.round(Number(s.mitm_proxy_port))
+        : base.mitm_proxy_port,
   })
 }
 
@@ -117,6 +144,14 @@ export function clampQuotaMinutes(m: number): number {
   return Math.min(10080, Math.max(5, Math.round(m)))
 }
 
+/** 当前会话额度快查间隔（秒），与后端 clampQuotaHotPollSeconds 一致 */
+export function clampHotPollSeconds(sec: number): number {
+  if (!Number.isFinite(sec) || sec <= 0) {
+    return 12
+  }
+  return Math.min(60, Math.max(5, Math.round(sec)))
+}
+
 /** 与后端 JSON 字段一致，便于 reactive + v-model */
 export type SettingsForm = {
   proxy_enabled: boolean
@@ -130,6 +165,22 @@ export type SettingsForm = {
   quota_custom_interval_minutes: number
   /** 无感下一席位：all 或逗号分隔多选，如 trial,pro */
   auto_switch_plan_filter: string
+  /** 额度用尽时自动切下一席（需开启定期同步额度） */
+  auto_switch_on_quota_exhausted: boolean
+  /** 当前会话快查间隔（秒），用尽即切依赖此轮询 */
+  quota_hot_poll_seconds: number
+  /** 写入 auth 后重启 IDE，否则运行中 Windsurf 常仍用旧会话 */
+  restart_windsurf_after_switch: boolean
+  /** 关闭窗口时最小化到系统托盘 */
+  minimize_to_tray: boolean
+  /** 桌面小横条：置顶显示当前账号与额度 */
+  show_desktop_toolbar: boolean
+  /** 启动时不显示主窗口（托盘仍可打开） */
+  silent_start: boolean
+  /** 仅 MITM：不切换 windsurf_auth，额度用尽也不文件切号 */
+  mitm_only: boolean
+  /** 在 MITM 面板展示 TUN/全局代理说明（本应用不内置 TUN） */
+  mitm_tun_mode: boolean
 }
 
 export function settingsToForm(s: models.Settings): SettingsForm {
@@ -144,10 +195,23 @@ export function settingsToForm(s: models.Settings): SettingsForm {
     quota_refresh_policy: s.quota_refresh_policy || 'hybrid',
     quota_custom_interval_minutes: clampQuotaMinutes(s.quota_custom_interval_minutes),
     auto_switch_plan_filter: normalizeSwitchPlanFilter(s.auto_switch_plan_filter),
+    auto_switch_on_quota_exhausted: s.auto_switch_on_quota_exhausted !== false,
+    quota_hot_poll_seconds: clampHotPollSeconds(s.quota_hot_poll_seconds ?? 12),
+    restart_windsurf_after_switch: s.restart_windsurf_after_switch !== false,
+    minimize_to_tray: s.minimize_to_tray === true,
+    show_desktop_toolbar: s.show_desktop_toolbar === true,
+    silent_start: s.silent_start === true,
+    mitm_only: s.mitm_only === true,
+    mitm_tun_mode: s.mitm_tun_mode === true,
   }
 }
 
-export function formToSettings(form: SettingsForm, patchApplied: boolean): models.Settings {
+export function formToSettings(
+  form: SettingsForm,
+  patchApplied: boolean,
+  base?: models.Settings | null,
+): models.Settings {
+  const b = base ?? createDefaultSettings()
   return new models.Settings({
     proxy_enabled: form.proxy_enabled,
     proxy_url: form.proxy_url.trim(),
@@ -159,6 +223,16 @@ export function formToSettings(form: SettingsForm, patchApplied: boolean): model
     quota_refresh_policy: form.quota_refresh_policy || 'hybrid',
     quota_custom_interval_minutes: clampQuotaMinutes(form.quota_custom_interval_minutes),
     auto_switch_plan_filter: normalizeSwitchPlanFilter(form.auto_switch_plan_filter),
+    auto_switch_on_quota_exhausted: form.auto_switch_on_quota_exhausted,
+    quota_hot_poll_seconds: clampHotPollSeconds(form.quota_hot_poll_seconds),
+    restart_windsurf_after_switch: form.restart_windsurf_after_switch,
+    minimize_to_tray: form.minimize_to_tray,
+    show_desktop_toolbar: form.show_desktop_toolbar,
+    silent_start: form.silent_start,
+    mitm_only: form.mitm_only,
+    mitm_tun_mode: form.mitm_tun_mode,
+    mitm_proxy_enabled: b.mitm_proxy_enabled,
+    mitm_proxy_port: b.mitm_proxy_port,
   })
 }
 

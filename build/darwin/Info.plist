@@ -8,7 +8,9 @@
         <key>CFBundleExecutable</key>
         <string>{{.OutputFilename}}</string>
         <key>CFBundleIdentifier</key>
-        <string>com.wails.{{.Name}}</string>
+        <string>com.shaoyu521.windsurf-tools</string>
+        <key>LSApplicationCategoryType</key>
+        <string>public.app-category.developer-tools</string>
         <key>CFBundleVersion</key>
         <string>{{.Info.ProductVersion}}</string>
         <key>CFBundleGetInfoString</key>
