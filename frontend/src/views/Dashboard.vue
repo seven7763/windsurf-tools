@@ -4,11 +4,23 @@ import { useAccountStore } from '../stores/useAccountStore'
 import { useSystemStore } from '../stores/useSystemStore'
 import { useSettingsStore } from '../stores/useSettingsStore'
 import { useMitmStatusStore } from '../stores/useMitmStatusStore'
+import { useMainViewStore } from '../stores/useMainViewStore'
 import SmartInsightsCard from '../components/dashboard/SmartInsightsCard.vue'
 import MitmPanel from '../components/MitmPanel.vue'
 import PlanDistributionDonut from '../components/settings/PlanDistributionDonut.vue'
 import { computeDashboardInsights } from '../utils/dashboardInsights'
-import { KeyRound, Users, CheckCircle, AlertTriangle, Activity, BarChart3, Wifi } from 'lucide-vue-next'
+import {
+  KeyRound,
+  Users,
+  CheckCircle,
+  AlertTriangle,
+  Activity,
+  BarChart3,
+  Wifi,
+  Sparkles,
+  ChevronRight,
+  RefreshCcw,
+} from 'lucide-vue-next'
 import { showToast } from '../utils/toast'
 import { getPlanTone } from '../utils/account'
 import { SWITCH_PLAN_FILTER_TONES, switchPlanFilterToneOptions, type SwitchPlanTone } from '../utils/settingsModel'
@@ -18,6 +30,22 @@ const accountStore = useAccountStore()
 const systemStore = useSystemStore()
 const settingsStore = useSettingsStore()
 const mitmStore = useMitmStatusStore()
+const mainView = useMainViewStore()
+
+type StartupGuideAction = 'refresh_session' | 'open_accounts' | 'open_settings'
+type StartupGuideTone = 'sky' | 'emerald' | 'amber' | 'violet'
+type StartupGuide = {
+  id: string
+  badge: string
+  title: string
+  body: string
+  tone: StartupGuideTone
+  steps: string[]
+  primaryAction: StartupGuideAction
+  primaryLabel: string
+  secondaryAction?: StartupGuideAction
+  secondaryLabel?: string
+}
 
 const mitmOnly = computed(() => settingsStore.settings?.mitm_only === true)
 const status = computed(() => mitmStore.status)
@@ -39,6 +67,136 @@ const currentOnlineAccount = computed(() => {
   const e = email.trim().toLowerCase()
   return accountStore.accounts.find((a) => (a.email || '').trim().toLowerCase() === e) ?? null
 })
+
+const currentAuthEmail = computed(() => (systemStore.currentAuthEmail || '').trim())
+
+const startupGuide = computed<StartupGuide | null>(() => {
+  const email = currentAuthEmail.value
+
+  if (!email && totalAccounts.value === 0) {
+    return {
+      id: 'first_login_required',
+      badge: '首次启动',
+      title: '先在 Windsurf 完成一次官方登录',
+      body: '当前这台机器还没检测到 Windsurf 登录态，账号池也还是空的。先让官方客户端在本机生成登录信息，后面才能导入、同步额度和自动切号。',
+      tone: 'sky',
+      steps: [
+        '打开 Windsurf，使用你的账号完成一次正常登录。',
+        '回到这里点击“刷新当前会话”，确认首页能检测到在线邮箱。',
+        '再进入账号池导入账号；如果准备用本地 Auth 切号，后续去设置里确认安装路径。',
+      ],
+      primaryAction: 'refresh_session',
+      primaryLabel: '我已登录，刷新检测',
+      secondaryAction: 'open_accounts',
+      secondaryLabel: '打开账号池',
+    }
+  }
+
+  if (email && totalAccounts.value === 0) {
+    return {
+      id: 'login_detected_pool_empty',
+      badge: '已检测到登录',
+      title: '把当前 Windsurf 会话接入号池',
+      body: `当前已检测到本机登录账号 ${email}，但账号池还是空的。本软件还无法为这个账号同步额度、自动切号或接入 MITM 轮换。`,
+      tone: 'emerald',
+      steps: [
+        '进入账号池，导入当前账号或批量导入你的账号列表。',
+        '导入后刷新凭证与额度，让首页开始显示健康状态。',
+        mitmOnly.value
+          ? '如果你准备只走 MITM 轮换，优先补齐 API Key / JWT。'
+          : '如果你准备走本地 Auth 切号，再去设置里确认路径与运行模式。',
+      ],
+      primaryAction: 'open_accounts',
+      primaryLabel: '去导入账号',
+      secondaryAction: 'open_settings',
+      secondaryLabel: '打开设置',
+    }
+  }
+
+  if (email && totalAccounts.value > 0 && !currentOnlineAccount.value) {
+    return {
+      id: 'current_session_not_managed',
+      badge: '尚未接管',
+      title: '当前在线账号还不在号池里',
+      body: `检测到 ${email} 已在 Windsurf 中登录，但它不在当前账号池里。本软件现在还无法对这个会话做额度同步、切号或 MITM 接管。`,
+      tone: 'amber',
+      steps: [
+        '去账号池导入当前在线账号，或者切换到一个已经导入的账号。',
+        mitmOnly.value
+          ? '如果你想完全走 MITM 轮换，请确认账号池里已有可用 API Key / JWT。'
+          : '如果你想继续用 Auth 切号，请顺手确认设置里的 Windsurf 路径与补丁状态。',
+        '接管完成后，再回来刷新当前会话，首页会开始显示对应在线状态。',
+      ],
+      primaryAction: 'open_accounts',
+      primaryLabel: '去账号池处理',
+      secondaryAction: 'refresh_session',
+      secondaryLabel: '刷新当前会话',
+    }
+  }
+
+  return null
+})
+
+const startupGuideToneClass = (tone: StartupGuideTone) => {
+  switch (tone) {
+    case 'emerald':
+      return {
+        wrap: 'border-emerald-500/14 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0.76))] dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_36%),linear-gradient(180deg,rgba(28,28,30,0.96),rgba(28,28,30,0.88))]',
+        icon: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300',
+        badge: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        step: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        primary: 'bg-emerald-600 text-white hover:bg-emerald-500',
+      }
+    case 'amber':
+      return {
+        wrap: 'border-amber-500/14 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.16),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0.76))] dark:bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.18),transparent_36%),linear-gradient(180deg,rgba(28,28,30,0.96),rgba(28,28,30,0.88))]',
+        icon: 'bg-amber-500/12 text-amber-600 dark:text-amber-300',
+        badge: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+        step: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+        primary: 'bg-amber-600 text-white hover:bg-amber-500',
+      }
+    case 'violet':
+      return {
+        wrap: 'border-violet-500/14 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.18),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0.76))] dark:bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.2),transparent_36%),linear-gradient(180deg,rgba(28,28,30,0.96),rgba(28,28,30,0.88))]',
+        icon: 'bg-violet-500/12 text-violet-600 dark:text-violet-300',
+        badge: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+        step: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+        primary: 'bg-violet-600 text-white hover:bg-violet-500',
+      }
+    case 'sky':
+    default:
+      return {
+        wrap: 'border-ios-blue/14 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0.76))] dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.2),transparent_36%),linear-gradient(180deg,rgba(28,28,30,0.96),rgba(28,28,30,0.88))]',
+        icon: 'bg-ios-blue/12 text-ios-blue dark:text-blue-300',
+        badge: 'bg-ios-blue/10 text-ios-blue dark:text-blue-300',
+        step: 'bg-ios-blue/10 text-ios-blue dark:text-blue-300',
+        primary: 'bg-ios-blue text-white hover:bg-blue-500',
+      }
+  }
+}
+
+const runStartupGuideAction = async (action: StartupGuideAction) => {
+  switch (action) {
+    case 'open_accounts':
+      mainView.activeTab = 'Accounts'
+      return
+    case 'open_settings':
+      mainView.activeTab = 'Settings'
+      return
+    case 'refresh_session':
+      try {
+        await Promise.all([systemStore.fetchCurrentAuth(), accountStore.fetchAccounts(true)])
+        if (systemStore.currentAuthEmail?.trim()) {
+          showToast(`已检测到当前会话：${systemStore.currentAuthEmail}`, 'success')
+        } else {
+          showToast('还没检测到 Windsurf 登录，请先在官方客户端完成一次登录后再刷新。', 'info')
+        }
+      } catch (e: unknown) {
+        showToast(`刷新当前会话失败: ${String(e)}`, 'error')
+      }
+      return
+  }
+}
 
 onMounted(() => {
   accountStore.fetchAccounts()
@@ -82,22 +240,32 @@ const parseQuota = (str: string | undefined | null) => {
   return Number.isFinite(n) ? n : null
 }
 
-const lowQuotaCount = computed(() => {
-  return accountStore.accounts.filter(a => {
-    const q = parseQuota(a.daily_remaining)
-    return q !== null && q > 0 && q < 20
-  }).length
-})
+const isQuotaDepletedAccount = (account: { daily_remaining?: string | null; weekly_remaining?: string | null }) => {
+  const daily = parseQuota(account.daily_remaining)
+  const weekly = parseQuota(account.weekly_remaining)
+  const dailyKnown = daily !== null
+  const weeklyKnown = weekly !== null
+  return Boolean(dailyKnown && daily <= 0 && (!weeklyKnown || (weekly ?? 0) <= 0))
+}
 
-const expiredCount = computed(() => {
-  return accountStore.accounts.filter(a => {
-    const q = parseQuota(a.daily_remaining)
-    return q === 0
-  }).length
-})
+const isLowQuotaAccount = (account: { daily_remaining?: string | null; weekly_remaining?: string | null }) => {
+  if (isQuotaDepletedAccount(account)) {
+    return false
+  }
+  const daily = parseQuota(account.daily_remaining)
+  const weekly = parseQuota(account.weekly_remaining)
+  return Boolean(
+    (daily !== null && daily > 0 && daily < 20) ||
+      (weekly !== null && weekly > 0 && weekly < 20),
+  )
+}
+
+const lowQuotaCount = computed(() => accountStore.accounts.filter(isLowQuotaAccount).length)
+
+const depletedCount = computed(() => accountStore.accounts.filter(isQuotaDepletedAccount).length)
 
 const normalCount = computed(() => {
-  const c = totalAccounts.value - lowQuotaCount.value - expiredCount.value
+  const c = totalAccounts.value - lowQuotaCount.value - depletedCount.value
   return c < 0 ? 0 : c
 })
 
@@ -191,6 +359,89 @@ const dashOffset = computed(() => circumference * (1 - healthRate.value / 100))
       </div>
     </div>
 
+    <div
+      v-if="startupGuide"
+      class="mb-6 overflow-hidden rounded-[26px] border shadow-[0_14px_42px_-18px_rgba(15,23,42,0.2)] dark:shadow-[0_14px_42px_-18px_rgba(0,0,0,0.45)]"
+      :class="startupGuideToneClass(startupGuide.tone).wrap"
+    >
+      <div class="flex items-start gap-4 border-b border-black/[0.05] px-5 py-5 dark:border-white/[0.06]">
+        <div
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ring-black/[0.04] dark:ring-white/[0.06]"
+          :class="startupGuideToneClass(startupGuide.tone).icon"
+        >
+          <Sparkles class="h-5 w-5" stroke-width="2.4" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span
+              class="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]"
+              :class="startupGuideToneClass(startupGuide.tone).badge"
+            >
+              {{ startupGuide.badge }}
+            </span>
+            <span class="text-[11px] font-semibold text-gray-400 dark:text-gray-500">首次接入引导</span>
+          </div>
+          <h2 class="mt-2 text-[20px] font-[800] tracking-tight text-gray-900 dark:text-gray-100">{{ startupGuide.title }}</h2>
+          <p class="mt-2 max-w-3xl text-[13px] leading-relaxed text-gray-600 dark:text-gray-300">
+            {{ startupGuide.body }}
+          </p>
+        </div>
+      </div>
+
+      <div class="grid gap-5 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div class="space-y-2.5">
+          <div
+            v-for="(step, index) in startupGuide.steps"
+            :key="`${startupGuide.id}-${index}`"
+            class="flex items-start gap-3 rounded-[18px] border border-black/[0.04] bg-white/75 px-4 py-3 dark:border-white/[0.06] dark:bg-white/[0.04]"
+          >
+            <span
+              class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black"
+              :class="startupGuideToneClass(startupGuide.tone).step"
+            >
+              {{ index + 1 }}
+            </span>
+            <span class="text-[13px] font-medium leading-relaxed text-gray-700 dark:text-gray-200">{{ step }}</span>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 lg:w-[220px] lg:flex-col lg:items-stretch">
+          <button
+            type="button"
+            class="no-drag-region inline-flex items-center justify-center gap-2 rounded-[14px] px-4 py-3 text-[13px] font-bold transition-colors ios-btn"
+            :class="startupGuideToneClass(startupGuide.tone).primary"
+            @click="runStartupGuideAction(startupGuide.primaryAction)"
+          >
+            <RefreshCcw
+              v-if="startupGuide.primaryAction === 'refresh_session'"
+              class="h-4 w-4"
+              stroke-width="2.4"
+            />
+            <Users
+              v-else-if="startupGuide.primaryAction === 'open_accounts'"
+              class="h-4 w-4"
+              stroke-width="2.4"
+            />
+            <BarChart3
+              v-else
+              class="h-4 w-4"
+              stroke-width="2.4"
+            />
+            {{ startupGuide.primaryLabel }}
+          </button>
+          <button
+            v-if="startupGuide.secondaryAction && startupGuide.secondaryLabel"
+            type="button"
+            class="no-drag-region inline-flex items-center justify-center gap-2 rounded-[14px] border border-black/[0.06] bg-white/80 px-4 py-3 text-[13px] font-bold text-gray-700 transition-colors hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200 dark:hover:bg-white/[0.08] ios-btn"
+            @click="runStartupGuideAction(startupGuide.secondaryAction)"
+          >
+            {{ startupGuide.secondaryLabel }}
+            <ChevronRight class="h-4 w-4" stroke-width="2.4" />
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Smart Insights -->
     <SmartInsightsCard :insights="dashboardInsights" />
 
@@ -271,8 +522,8 @@ const dashOffset = computed(() => circumference * (1 - healthRate.value / 100))
               <span class="text-[11px] text-gray-500 mt-1">偏低</span>
             </div>
             <div class="flex flex-col">
-              <span class="text-[18px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{{ expiredCount }}</span>
-              <span class="text-[11px] text-gray-500 mt-1">过期</span>
+              <span class="text-[18px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{{ depletedCount }}</span>
+              <span class="text-[11px] text-gray-500 mt-1">见底</span>
             </div>
           </div>
         </div>

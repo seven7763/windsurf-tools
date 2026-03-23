@@ -17,19 +17,26 @@ var asiaShanghaiLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
 
 // enrichAccountQuotaOnly 热轮询额度用尽检测：只更新 JWT 解析 + 额度相关 profile，不做 RegisterUser / GetAccountInfo。
 func (a *App) enrichAccountQuotaOnly(acc *models.Account) {
+	a.enrichAccountQuotaOnlyWithService(a.windsurfSvc, acc)
+}
+
+func (a *App) enrichAccountQuotaOnlyWithService(svc *services.WindsurfService, acc *models.Account) {
 	if acc == nil {
 		return
 	}
+	if svc == nil {
+		return
+	}
 	if acc.Token != "" {
-		if claims, err := a.windsurfSvc.DecodeJWTClaims(acc.Token); err == nil {
+		if claims, err := svc.DecodeJWTClaims(acc.Token); err == nil {
 			applyJWTClaims(acc, claims)
 		}
-		if plan, err := a.windsurfSvc.GetPlanStatusJSON(acc.Token); err == nil {
+		if plan, err := svc.GetPlanStatusJSON(acc.Token); err == nil {
 			applyAccountProfile(acc, plan)
 		}
 	}
 	if acc.WindsurfAPIKey != "" {
-		if profile, err := a.windsurfSvc.GetUserStatus(acc.WindsurfAPIKey); err == nil {
+		if profile, err := svc.GetUserStatus(acc.WindsurfAPIKey); err == nil {
 			applyAccountProfile(acc, profile)
 		}
 	}
@@ -43,12 +50,28 @@ func (a *App) enrichAccountQuotaOnly(acc *models.Account) {
 
 // enrichAccountInfoLite 批量导入时使用：只做本地 JWT 解析，避免 RegisterUser / GetPlan / GetUserStatus 等串行请求拖死界面。
 func (a *App) enrichAccountInfoLite(acc *models.Account) {
+	a.enrichAccountInfoLiteWithService(a.windsurfSvc, acc)
+}
+
+func (a *App) enrichAccountInfoLiteWithService(svc *services.WindsurfService, acc *models.Account) {
 	if acc == nil {
 		return
 	}
+	if svc == nil {
+		return
+	}
 	if acc.Token != "" {
-		if claims, err := a.windsurfSvc.DecodeJWTClaims(acc.Token); err == nil {
+		if claims, err := svc.DecodeJWTClaims(acc.Token); err == nil {
 			applyJWTClaims(acc, claims)
+		}
+		// 调用服务端获取计划与额度（JWT 或 Firebase Token 均可尝试，失败忽略）
+		if plan, err := svc.GetPlanStatusJSON(acc.Token); err == nil {
+			applyAccountProfile(acc, plan)
+		}
+	}
+	if acc.WindsurfAPIKey != "" {
+		if profile, err := svc.GetUserStatus(acc.WindsurfAPIKey); err == nil {
+			applyAccountProfile(acc, profile)
 		}
 	}
 	if acc.Nickname == "" && acc.Email != "" {
@@ -62,30 +85,41 @@ func (a *App) enrichAccountInfoLite(acc *models.Account) {
 }
 
 func (a *App) enrichAccountInfo(acc *models.Account) {
+	a.enrichAccountInfoWithService(a.windsurfSvc, acc)
+}
+
+func (a *App) enrichAccountInfoWithService(svc *services.WindsurfService, acc *models.Account) {
 	if acc == nil {
+		return
+	}
+	if svc == nil {
 		return
 	}
 
 	if acc.Token != "" {
-		if claims, err := a.windsurfSvc.DecodeJWTClaims(acc.Token); err == nil {
+		if claims, err := svc.DecodeJWTClaims(acc.Token); err == nil {
 			applyJWTClaims(acc, claims)
 		}
 	}
 
 	if acc.Token != "" && (acc.RefreshToken != "" || acc.Password != "") {
-		if email, err := a.windsurfSvc.GetAccountInfo(acc.Token); err == nil && email != "" {
+		if email, err := svc.GetAccountInfo(acc.Token); err == nil && email != "" {
 			acc.Email = email
 		}
-		if reg, err := a.windsurfSvc.RegisterUser(acc.Token); err == nil && reg != nil && reg.APIKey != "" {
+		if reg, err := svc.RegisterUser(acc.Token); err == nil && reg != nil && reg.APIKey != "" {
 			acc.WindsurfAPIKey = reg.APIKey
 		}
-		if plan, err := a.windsurfSvc.GetPlanStatusJSON(acc.Token); err == nil {
+	}
+
+	// GetPlanStatusJSON 不依赖 RefreshToken/Password，JWT-only 账号也可调用
+	if acc.Token != "" {
+		if plan, err := svc.GetPlanStatusJSON(acc.Token); err == nil {
 			applyAccountProfile(acc, plan)
 		}
 	}
 
 	if acc.WindsurfAPIKey != "" {
-		if profile, err := a.windsurfSvc.GetUserStatus(acc.WindsurfAPIKey); err == nil {
+		if profile, err := svc.GetUserStatus(acc.WindsurfAPIKey); err == nil {
 			applyAccountProfile(acc, profile)
 		}
 	}
@@ -287,6 +321,8 @@ func derivePlanNameFromClaims(claims *services.JWTClaims, storedSubEnd string) s
 		return "Max"
 	case "TEAMS_TIER_ENTERPRISE":
 		return "Enterprise"
+	case "TEAMS_TIER_TEAMS":
+		return "Teams"
 	case "TEAMS_TIER_TRIAL":
 		return "Trial"
 	case "TEAMS_TIER_FREE":
@@ -300,6 +336,9 @@ func derivePlanNameFromClaims(claims *services.JWTClaims, storedSubEnd string) s
 	}
 	if strings.Contains(teamsTier, "ENTERPRISE") {
 		return "Enterprise"
+	}
+	if teamsTier == "TEAMS_TIER_TEAMS" || (strings.Contains(teamsTier, "TEAMS") && !strings.Contains(teamsTier, "TIER_FREE") && !strings.Contains(teamsTier, "TIER_PRO") && !strings.Contains(teamsTier, "TIER_TRIAL")) {
+		return "Teams"
 	}
 	if strings.Contains(teamsTier, "PRO") {
 		return "Pro"

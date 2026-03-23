@@ -8,6 +8,7 @@ import IToast from './components/ios/IToast.vue'
 import ToolbarStrip from './components/ToolbarStrip.vue'
 import Dashboard from './views/Dashboard.vue'
 import Accounts from './views/Accounts.vue'
+import Relay from './views/Relay.vue'
 import Settings from './views/Settings.vue'
 import { useAccountStore } from './stores/useAccountStore'
 import { useSettingsStore } from './stores/useSettingsStore'
@@ -94,6 +95,7 @@ onUnmounted(() => {
               <Transition name="fade" mode="out-in">
                 <Dashboard v-if="mainView.activeTab === 'Dashboard'" />
                 <Accounts v-else-if="mainView.activeTab === 'Accounts'" />
+                <Relay v-else-if="mainView.activeTab === 'Relay'" />
                 <Settings v-else />
               </Transition>
             </div>

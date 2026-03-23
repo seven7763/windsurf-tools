@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { LayoutDashboard, Users, Settings } from 'lucide-vue-next'
+import { Globe, LayoutDashboard, Users, Settings } from 'lucide-vue-next'
 import { useAccountStore } from '../../stores/useAccountStore'
 import { useSettingsStore } from '../../stores/useSettingsStore'
 import { useSystemStore } from '../../stores/useSystemStore'
@@ -17,6 +17,7 @@ const menuItems = computed(() => {
   return [
     { id: 'Dashboard', icon: LayoutDashboard, label: '总览' },
     { id: 'Accounts', icon: Users, label: mitm ? '号池 (MITM)' : '账号池' },
+    { id: 'Relay', icon: Globe, label: 'API 中转' },
     { id: 'Settings', icon: Settings, label: '设置' },
   ]
 })

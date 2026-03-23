@@ -63,3 +63,25 @@ func TestNewStoreInPaths(t *testing.T) {
 		t.Fatalf("DataDir: got %q want %q", s.DataDir(), dir)
 	}
 }
+
+func TestLoadSettingsKeepsKnownFieldsAndIgnoresLegacyFields(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "settings.json")
+	raw := []byte(`{"mitm_proxy_enabled":true,"mitm_proxy_port":8443,"seamless_switch":true,"proxy_enabled":true}`)
+	if err := os.WriteFile(settingsPath, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := NewStoreInPaths(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := s.GetSettings()
+	if !got.MitmProxyEnabled {
+		t.Fatal("MitmProxyEnabled should load from settings.json")
+	}
+	if !got.ProxyEnabled {
+		t.Fatal("ProxyEnabled should load from settings.json")
+	}
+}

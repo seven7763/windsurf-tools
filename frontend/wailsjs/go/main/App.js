@@ -22,6 +22,10 @@ export function CheckPatchStatus(arg1) {
   return window['go']['main']['App']['CheckPatchStatus'](arg1);
 }
 
+export function ControlBackgroundService(arg1) {
+  return window['go']['main']['App']['ControlBackgroundService'](arg1);
+}
+
 export function DeleteAccount(arg1) {
   return window['go']['main']['App']['DeleteAccount'](arg1);
 }
@@ -46,16 +50,36 @@ export function GetAppStoragePath() {
   return window['go']['main']['App']['GetAppStoragePath']();
 }
 
+export function GetBackgroundServiceStatus() {
+  return window['go']['main']['App']['GetBackgroundServiceStatus']();
+}
+
 export function GetCurrentWindsurfAuth() {
   return window['go']['main']['App']['GetCurrentWindsurfAuth']();
+}
+
+export function GetDesktopRuntimeStatus() {
+  return window['go']['main']['App']['GetDesktopRuntimeStatus']();
 }
 
 export function GetMitmCAPath() {
   return window['go']['main']['App']['GetMitmCAPath']();
 }
 
+export function GetMitmDebugDumpEnabled() {
+  return window['go']['main']['App']['GetMitmDebugDumpEnabled']();
+}
+
 export function GetMitmProxyStatus() {
   return window['go']['main']['App']['GetMitmProxyStatus']();
+}
+
+export function GetOpenAIRelayStatus() {
+  return window['go']['main']['App']['GetOpenAIRelayStatus']();
+}
+
+export function GetProtoDumpDir() {
+  return window['go']['main']['App']['GetProtoDumpDir']();
 }
 
 export function GetSettings() {
@@ -80,6 +104,10 @@ export function ImportByJWT(arg1) {
 
 export function ImportByRefreshToken(arg1) {
   return window['go']['main']['App']['ImportByRefreshToken'](arg1);
+}
+
+export function OpenAccountInIsolatedWindow(arg1) {
+  return window['go']['main']['App']['OpenAccountInIsolatedWindow'](arg1);
 }
 
 export function RefreshAccountQuota(arg1) {
@@ -118,8 +146,16 @@ export function StartMitmProxy() {
   return window['go']['main']['App']['StartMitmProxy']();
 }
 
+export function StartOpenAIRelay(arg1, arg2) {
+  return window['go']['main']['App']['StartOpenAIRelay'](arg1, arg2);
+}
+
 export function StopMitmProxy() {
   return window['go']['main']['App']['StopMitmProxy']();
+}
+
+export function StopOpenAIRelay() {
+  return window['go']['main']['App']['StopOpenAIRelay']();
 }
 
 export function SwitchAccount(arg1) {
@@ -128,6 +164,10 @@ export function SwitchAccount(arg1) {
 
 export function TeardownMitm() {
   return window['go']['main']['App']['TeardownMitm']();
+}
+
+export function ToggleMitmDebugDump(arg1) {
+  return window['go']['main']['App']['ToggleMitmDebugDump'](arg1);
 }
 
 export function UpdateSettings(arg1) {

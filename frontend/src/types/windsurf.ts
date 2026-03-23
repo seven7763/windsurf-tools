@@ -39,20 +39,6 @@ export interface ImportResult {
   error?: string
 }
 
-export interface SettingsForm {
-  proxy_enabled: boolean
-  proxy_url: string
-  windsurf_path: string
-  concurrent_limit: number
-  seamless_switch: boolean
-  auto_refresh_tokens: boolean
-  auto_refresh_quotas: boolean
-  quota_refresh_policy: string
-  quota_custom_interval_minutes: number
-  auto_switch_plan_filter?: string
-  auto_switch_on_quota_exhausted?: boolean
-}
-
 export interface PatchResult {
   success: boolean
   already_patched: boolean

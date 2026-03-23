@@ -39,6 +39,7 @@ func (a *App) DeleteExpiredAccounts() (int, error) {
 			deleted++
 		}
 	}
+	a.syncMitmPoolKeys()
 	return deleted, nil
 }
 

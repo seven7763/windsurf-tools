@@ -14,6 +14,78 @@ export namespace main {
 	        this.remark = source["remark"];
 	    }
 	}
+	export class BackgroundServiceStatus {
+	    name: string;
+	    platform: string;
+	    supported: boolean;
+	    installed: boolean;
+	    running: boolean;
+	    status: string;
+	    detail: string;
+	    autostart_mitm: boolean;
+	    log_path: string;
+	    recent_logs: string[];
+	    last_log_at: string;
+	    last_log_line: string;
+	    last_log_tone: string;
+	    last_error_at: string;
+	    last_error_line: string;
+	    recent_error_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackgroundServiceStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.platform = source["platform"];
+	        this.supported = source["supported"];
+	        this.installed = source["installed"];
+	        this.running = source["running"];
+	        this.status = source["status"];
+	        this.detail = source["detail"];
+	        this.autostart_mitm = source["autostart_mitm"];
+	        this.log_path = source["log_path"];
+	        this.recent_logs = source["recent_logs"];
+	        this.last_log_at = source["last_log_at"];
+	        this.last_log_line = source["last_log_line"];
+	        this.last_log_tone = source["last_log_tone"];
+	        this.last_error_at = source["last_error_at"];
+	        this.last_error_line = source["last_error_line"];
+	        this.recent_error_count = source["recent_error_count"];
+	    }
+	}
+	export class DesktopRuntimeStatus {
+	    status: string;
+	    detail: string;
+	    log_path: string;
+	    recent_logs: string[];
+	    last_log_at: string;
+	    last_log_line: string;
+	    last_log_tone: string;
+	    last_error_at: string;
+	    last_error_line: string;
+	    recent_error_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DesktopRuntimeStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.detail = source["detail"];
+	        this.log_path = source["log_path"];
+	        this.recent_logs = source["recent_logs"];
+	        this.last_log_at = source["last_log_at"];
+	        this.last_log_line = source["last_log_line"];
+	        this.last_log_tone = source["last_log_tone"];
+	        this.last_error_at = source["last_error_at"];
+	        this.last_error_line = source["last_error_line"];
+	        this.recent_error_count = source["recent_error_count"];
+	    }
+	}
 	export class EmailPasswordItem {
 	    email: string;
 	    password: string;
@@ -140,7 +212,6 @@ export namespace models {
 	    proxy_url: string;
 	    windsurf_path: string;
 	    concurrent_limit: number;
-	    seamless_switch: boolean;
 	    auto_refresh_tokens: boolean;
 	    auto_refresh_quotas: boolean;
 	    quota_refresh_policy: string;
@@ -155,7 +226,10 @@ export namespace models {
 	    mitm_only: boolean;
 	    mitm_tun_mode: boolean;
 	    mitm_proxy_enabled: boolean;
-	    mitm_proxy_port: number;
+	    mitm_debug_dump: boolean;
+	    openai_relay_enabled: boolean;
+	    openai_relay_port: number;
+	    openai_relay_secret: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -167,7 +241,6 @@ export namespace models {
 	        this.proxy_url = source["proxy_url"];
 	        this.windsurf_path = source["windsurf_path"];
 	        this.concurrent_limit = source["concurrent_limit"];
-	        this.seamless_switch = source["seamless_switch"];
 	        this.auto_refresh_tokens = source["auto_refresh_tokens"];
 	        this.auto_refresh_quotas = source["auto_refresh_quotas"];
 	        this.quota_refresh_policy = source["quota_refresh_policy"];
@@ -182,7 +255,10 @@ export namespace models {
 	        this.mitm_only = source["mitm_only"];
 	        this.mitm_tun_mode = source["mitm_tun_mode"];
 	        this.mitm_proxy_enabled = source["mitm_proxy_enabled"];
-	        this.mitm_proxy_port = source["mitm_proxy_port"];
+	        this.mitm_debug_dump = source["mitm_debug_dump"];
+	        this.openai_relay_enabled = source["openai_relay_enabled"];
+	        this.openai_relay_port = source["openai_relay_port"];
+	        this.openai_relay_secret = source["openai_relay_secret"];
 	    }
 	}
 
@@ -190,9 +266,27 @@ export namespace models {
 
 export namespace services {
 	
+	export class MitmProxyEvent {
+	    at: string;
+	    message: string;
+	    tone: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MitmProxyEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.at = source["at"];
+	        this.message = source["message"];
+	        this.tone = source["tone"];
+	    }
+	}
 	export class PoolKeyInfo {
 	    key_short: string;
 	    healthy: boolean;
+	    runtime_exhausted: boolean;
+	    cooldown_until: string;
 	    has_jwt: boolean;
 	    request_count: number;
 	    success_count: number;
@@ -207,6 +301,8 @@ export namespace services {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key_short = source["key_short"];
 	        this.healthy = source["healthy"];
+	        this.runtime_exhausted = source["runtime_exhausted"];
+	        this.cooldown_until = source["cooldown_until"];
 	        this.has_jwt = source["has_jwt"];
 	        this.request_count = source["request_count"];
 	        this.success_count = source["success_count"];
@@ -222,6 +318,11 @@ export namespace services {
 	    current_key: string;
 	    pool_status: PoolKeyInfo[];
 	    total_requests: number;
+	    last_error_kind: string;
+	    last_error_summary: string;
+	    last_error_at: string;
+	    last_error_key: string;
+	    recent_events: MitmProxyEvent[];
 	
 	    static createFrom(source: any = {}) {
 	        return new MitmProxyStatus(source);
@@ -236,6 +337,11 @@ export namespace services {
 	        this.current_key = source["current_key"];
 	        this.pool_status = this.convertValues(source["pool_status"], PoolKeyInfo);
 	        this.total_requests = source["total_requests"];
+	        this.last_error_kind = source["last_error_kind"];
+	        this.last_error_summary = source["last_error_summary"];
+	        this.last_error_at = source["last_error_at"];
+	        this.last_error_key = source["last_error_key"];
+	        this.recent_events = this.convertValues(source["recent_events"], MitmProxyEvent);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -255,6 +361,22 @@ export namespace services {
 		    }
 		    return a;
 		}
+	}
+	export class OpenAIRelayStatus {
+	    running: boolean;
+	    port: number;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenAIRelayStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	    }
 	}
 	export class PatchResult {
 	    success: boolean;

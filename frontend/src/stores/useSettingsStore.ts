@@ -9,7 +9,6 @@ import {
   normalizeSwitchPlanFilter,
   settingsToForm,
 } from '../utils/settingsModel'
-import { useSystemStore } from './useSystemStore'
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<models.Settings | null>(null)
@@ -35,11 +34,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   /** 仅更新「无感下一席位」计划筛选并写回设置文件 */
   const saveAutoSwitchPlanFilter = async (filter: string) => {
-    const sys = useSystemStore()
     const base = normalizeSettings(settings.value ?? createDefaultSettings())
     const form = settingsToForm(base)
     form.auto_switch_plan_filter = normalizeSwitchPlanFilter(filter)
-    await updateSettings(formToSettings(form, sys.patchStatus, base))
+    await updateSettings(formToSettings(form))
   }
 
   return {

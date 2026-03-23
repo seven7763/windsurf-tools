@@ -5,15 +5,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// InjectCodeiumConfig 写入 ~/.codeium/config.json 注入 API Key
-// Windsurf/Codeium 启动时会读取此文件中的 api_key
+// InjectCodeiumConfig 写入 ~/.codeium/config.json 注入 API Key。
+// 兼容不同 Windsurf/Codeium 版本，同时写入 snake_case 与 camelCase。
 func InjectCodeiumConfig(apiKey string) error {
 	if apiKey == "" {
 		return nil
 	}
-	dir, err := codeiumConfigDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return injectCodeiumConfigWithHomeDir(home, apiKey)
+}
+
+func InjectCodeiumConfigAtHome(homeDir, apiKey string) error {
+	if apiKey == "" {
+		return nil
+	}
+	return injectCodeiumConfigWithHomeDir(homeDir, apiKey)
+}
+
+func injectCodeiumConfigWithHomeDir(homeDir, apiKey string) error {
+	dir, err := codeiumConfigDirFromHome(homeDir)
 	if err != nil {
 		return err
 	}
@@ -32,6 +48,7 @@ func InjectCodeiumConfig(apiKey string) error {
 	}
 
 	config["api_key"] = apiKey
+	config["apiKey"] = apiKey
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -55,7 +72,7 @@ func RestoreCodeiumConfig() error {
 		return nil
 	}
 
-	// 无备份时清除 api_key 字段
+	// 无备份时清除注入过的 key 字段
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil
@@ -65,6 +82,7 @@ func RestoreCodeiumConfig() error {
 		return nil
 	}
 	delete(config, "api_key")
+	delete(config, "apiKey")
 	newData, _ := json.MarshalIndent(config, "", "  ")
 	_ = os.WriteFile(configPath, newData, 0644)
 	return nil
@@ -74,6 +92,13 @@ func codeiumConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("获取用户目录: %w", err)
+	}
+	return codeiumConfigDirFromHome(home)
+}
+
+func codeiumConfigDirFromHome(home string) (string, error) {
+	if strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("获取用户目录: 为空")
 	}
 	dir := filepath.Join(home, ".codeium")
 	if err := os.MkdirAll(dir, 0755); err != nil {

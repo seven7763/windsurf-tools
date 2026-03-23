@@ -277,38 +277,53 @@ func (s *WindsurfService) GetPlanStatus(token string) (map[string]interface{}, e
 // ── gRPC 直连获取 JWT (sk-ws-* API Key) ──
 
 func (s *WindsurfService) GetJWTByAPIKey(apiKey string) (string, error) {
-	grpcURL := fmt.Sprintf("https://%s/exa.auth_pb.AuthService/GetUserJwt", GRPCUpstreamIP)
+	connectURL := fmt.Sprintf("https://%s/exa.auth_pb.AuthService/GetUserJwt", GRPCUpstreamIP)
 	metadata := buildAPIKeyMetadata(apiKey)
-	envelope := buildGRPCEnvelope(metadata)
 
-	req, _ := http.NewRequest("POST", grpcURL, bytes.NewReader(envelope))
-	req.Header.Set("Content-Type", "application/grpc")
-	req.Header.Set("Authorization", apiKey)
+	// Connect 协议：F1 嵌套 metadata 子消息，无 gRPC 5 字节帧头
+	body := make([]byte, 0, 2+len(metadata))
+	body = append(body, 0x0a) // field 1, wire type 2
+	body = append(body, encodeLength(len(metadata))...)
+	body = append(body, metadata...)
+
+	req, _ := http.NewRequest("POST", connectURL, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/proto")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Host = GRPCUpstreamHost // 关键：必须用 req.Host 而不是 Header.Set
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("gRPC JWT请求失败(网络): %w", err)
+		return "", fmt.Errorf("Connect JWT请求失败(网络): %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		grpcStatus := resp.Header.Get("grpc-status")
-		grpcMsg := resp.Header.Get("grpc-message")
-		return "", fmt.Errorf("gRPC JWT失败(HTTP %d, grpc-status=%s, msg=%s): %s",
-			resp.StatusCode, grpcStatus, grpcMsg, truncate(string(respBody), 200))
+		return "", fmt.Errorf("Connect JWT失败(HTTP %d): %s",
+			resp.StatusCode, truncate(string(respBody), 200))
 	}
 
-	if len(respBody) < 6 {
-		return "", fmt.Errorf("gRPC响应体太短(%d bytes)", len(respBody))
+	// Connect 协议响应可能是 gzip 压缩的原始 protobuf
+	if len(respBody) >= 2 && respBody[0] == 0x1f && respBody[1] == 0x8b {
+		reader, gzErr := gzip.NewReader(bytes.NewReader(respBody))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(reader)
+			reader.Close()
+			if readErr == nil {
+				respBody = decompressed
+			}
+		}
 	}
 
-	payload := respBody[5:]
-	jwt, found := utils.FindJWTInProtobuf(payload)
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("Connect JWT响应体为空")
+	}
+
+	jwt, found := utils.FindJWTInProtobuf(respBody)
 	if !found {
-		return "", fmt.Errorf("gRPC响应中未找到JWT(payload %d bytes): %s",
-			len(payload), truncate(string(payload), 200))
+		return "", fmt.Errorf("Connect响应中未找到JWT(%d bytes): %s",
+			len(respBody), truncate(string(respBody), 200))
 	}
 	return jwt, nil
 }

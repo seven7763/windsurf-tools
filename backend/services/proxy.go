@@ -21,9 +21,11 @@ const (
 	UpstreamHost = "server.self-serve.windsurf.com"
 
 	defaultProxyPort  = 443
-	jwtRefreshMinutes = 14
+	jwtRefreshMinutes = 4
 	maxConsecErrors   = 1
 	keyCooldownSec    = 600
+	recentEventLimit  = 12
+	streamQuotaWindow = 4096
 )
 
 // PoolKeyState tracks the runtime state of each pool key.
@@ -31,6 +33,7 @@ type PoolKeyState struct {
 	APIKey           string
 	JWT              []byte
 	Healthy          bool
+	RuntimeExhausted bool
 	CooldownUntil    time.Time
 	ConsecutiveErrs  int
 	RequestCount     int
@@ -47,6 +50,7 @@ func newPoolKeyState(apiKey string) *PoolKeyState {
 
 func (s *PoolKeyState) markExhausted() {
 	s.Healthy = false
+	s.RuntimeExhausted = true
 	s.CooldownUntil = time.Now().Add(keyCooldownSec * time.Second)
 	s.ConsecutiveErrs = 0
 	s.TotalExhausted++
@@ -58,6 +62,7 @@ func (s *PoolKeyState) isAvailable() bool {
 	}
 	if time.Now().After(s.CooldownUntil) {
 		s.Healthy = true
+		s.RuntimeExhausted = false
 		s.ConsecutiveErrs = 0
 		return true
 	}
@@ -67,6 +72,7 @@ func (s *PoolKeyState) isAvailable() bool {
 func (s *PoolKeyState) recordSuccess() {
 	s.RequestCount++
 	s.SuccessCount++
+	s.RuntimeExhausted = false
 	s.ConsecutiveErrs = 0
 }
 
@@ -78,44 +84,80 @@ func (s *PoolKeyState) recordError() bool {
 
 // MitmProxy is the core MITM reverse proxy that handles identity replacement.
 type MitmProxy struct {
-	mu          sync.RWMutex
-	listener    net.Listener
-	running     bool
-	port        int
-	proxyURL    string             // 出站代理 (如 http://127.0.0.1:7890)
+	mu       sync.RWMutex
+	listener net.Listener
+	running  bool
+	port     int
+	proxyURL string // 出站代理 (如 http://127.0.0.1:7890)
 
-	poolKeys    []string           // ordered list of api keys
-	keyStates   map[string]*PoolKeyState
-	currentIdx  int
-	jwtLock     sync.RWMutex
+	poolKeys   []string // ordered list of api keys
+	keyStates  map[string]*PoolKeyState
+	currentIdx int
+	jwtLock    sync.RWMutex
 
-	windsurfSvc *WindsurfService   // for JWT refresh
-	logFn       func(string)       // log callback for UI
+	windsurfSvc  *WindsurfService // for JWT refresh
+	logFn        func(string)     // log callback for UI
+	eventsMu     sync.RWMutex
+	recentEvents []MitmProxyEvent
 
-	jwtReady    chan struct{}       // closed when at least one JWT is available
-	jwtOnce     sync.Once
-	stopCh      chan struct{}
+	jwtReady chan struct{} // closed when at least one JWT is available
+	jwtOnce  sync.Once
+	stopCh   chan struct{}
+
+	lastErrorKind    string
+	lastErrorSummary string
+	lastErrorAt      string
+	lastErrorKey     string
+
+	debugDump bool // 开启后 dump GetChatMessage 请求/响应的 protobuf 字段树
+}
+
+var injectCodeiumConfigFn = InjectCodeiumConfig
+var getJWTByAPIKeyFn = func(s *WindsurfService, apiKey string) (string, error) {
+	return s.GetJWTByAPIKey(apiKey)
 }
 
 // MitmProxyStatus is exposed to the frontend.
 type MitmProxyStatus struct {
-	Running     bool              `json:"running"`
-	Port        int               `json:"port"`
-	HostsMapped bool              `json:"hosts_mapped"`
-	CAInstalled bool              `json:"ca_installed"`
-	CurrentKey  string            `json:"current_key"`
-	PoolStatus  []PoolKeyInfo     `json:"pool_status"`
-	TotalReqs   int               `json:"total_requests"`
+	Running          bool             `json:"running"`
+	Port             int              `json:"port"`
+	HostsMapped      bool             `json:"hosts_mapped"`
+	CAInstalled      bool             `json:"ca_installed"`
+	CurrentKey       string           `json:"current_key"`
+	PoolStatus       []PoolKeyInfo    `json:"pool_status"`
+	TotalReqs        int              `json:"total_requests"`
+	LastErrorKind    string           `json:"last_error_kind"`
+	LastErrorSummary string           `json:"last_error_summary"`
+	LastErrorAt      string           `json:"last_error_at"`
+	LastErrorKey     string           `json:"last_error_key"`
+	RecentEvents     []MitmProxyEvent `json:"recent_events"`
 }
 
 type PoolKeyInfo struct {
-	KeyShort       string `json:"key_short"`
-	Healthy        bool   `json:"healthy"`
-	HasJWT         bool   `json:"has_jwt"`
-	RequestCount   int    `json:"request_count"`
-	SuccessCount   int    `json:"success_count"`
-	TotalExhausted int    `json:"total_exhausted"`
-	IsCurrent      bool   `json:"is_current"`
+	KeyShort         string `json:"key_short"`
+	Healthy          bool   `json:"healthy"`
+	RuntimeExhausted bool   `json:"runtime_exhausted"`
+	CooldownUntil    string `json:"cooldown_until"`
+	HasJWT           bool   `json:"has_jwt"`
+	RequestCount     int    `json:"request_count"`
+	SuccessCount     int    `json:"success_count"`
+	TotalExhausted   int    `json:"total_exhausted"`
+	IsCurrent        bool   `json:"is_current"`
+}
+
+type MitmProxyEvent struct {
+	At      string `json:"at"`
+	Message string `json:"message"`
+	Tone    string `json:"tone"`
+}
+
+type quotaStreamWatchBody struct {
+	inner      io.ReadCloser
+	onQuota    func(detail string)
+	onSuccess  func()
+	recentText string
+	sawQuota   bool
+	finalized  bool
 }
 
 // NewMitmProxy creates a new proxy instance.
@@ -131,23 +173,195 @@ func NewMitmProxy(windsurfSvc *WindsurfService, logFn func(string), proxyURL str
 	}
 }
 
+func (p *MitmProxy) syncCurrentAPIKeyToClient(apiKey string) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return
+	}
+	if err := injectCodeiumConfigFn(apiKey); err != nil {
+		p.log("同步本地 API Key 失败: %s... (%v)", apiKey[:minStr(12, len(apiKey))], err)
+		return
+	}
+	p.log("同步本地 API Key: %s...", apiKey[:minStr(12, len(apiKey))])
+}
+
+func (p *MitmProxy) markRuntimeExhaustedAndRotate(usedKey, detail string) string {
+	rotatedKey := ""
+	p.mu.Lock()
+	if state := p.keyStates[usedKey]; state != nil {
+		state.markExhausted()
+	}
+	rotatedKey = p.rotateKey()
+	p.mu.Unlock()
+	p.recordUpstreamFailure(upstreamFailureQuota, detail, usedKey)
+	if rotatedKey != "" {
+		p.syncCurrentAPIKeyToClient(rotatedKey)
+	}
+	return rotatedKey
+}
+
+func newQuotaStreamWatchBody(inner io.ReadCloser, onQuota func(detail string), onSuccess func()) *quotaStreamWatchBody {
+	return &quotaStreamWatchBody{
+		inner:     inner,
+		onQuota:   onQuota,
+		onSuccess: onSuccess,
+	}
+}
+
+func (b *quotaStreamWatchBody) Read(p []byte) (int, error) {
+	n, err := b.inner.Read(p)
+	if n > 0 {
+		b.scanChunk(p[:n])
+	}
+	if err == io.EOF {
+		b.finalize()
+	}
+	return n, err
+}
+
+func (b *quotaStreamWatchBody) Close() error {
+	err := b.inner.Close()
+	b.finalize()
+	return err
+}
+
+func (b *quotaStreamWatchBody) scanChunk(chunk []byte) {
+	if len(chunk) == 0 || b.sawQuota {
+		return
+	}
+	lower := strings.ToLower(string(chunk))
+	combined := b.recentText + lower
+	if len(combined) > streamQuotaWindow {
+		combined = combined[len(combined)-streamQuotaWindow:]
+	}
+	b.recentText = combined
+	if !isQuotaExhaustedText(combined) {
+		return
+	}
+	b.sawQuota = true
+	if b.onQuota != nil {
+		b.onQuota("stream-body=" + truncate(strings.TrimSpace(combined), 180))
+	}
+}
+
+func (b *quotaStreamWatchBody) finalize() {
+	if b.finalized {
+		return
+	}
+	b.finalized = true
+	if b.sawQuota || b.onSuccess == nil {
+		return
+	}
+	b.onSuccess()
+}
+
 func (p *MitmProxy) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf("[MITM] "+format, args...)
+	p.appendRecentEvent(msg)
 	log.Println(msg)
 	if p.logFn != nil {
 		p.logFn(msg)
 	}
 }
 
+func classifyMitmEventTone(message string) string {
+	text := strings.ToLower(strings.TrimSpace(message))
+	switch {
+	case strings.Contains(text, "失败"), strings.Contains(text, "错误"), strings.Contains(text, "异常退出"):
+		return "danger"
+	case strings.Contains(text, "⚠️"), strings.Contains(text, "耗尽"), strings.Contains(text, "跳过"), strings.Contains(text, "超时"):
+		return "warning"
+	case strings.Contains(text, "✅"), strings.Contains(text, "成功"), strings.Contains(text, "启动"), strings.Contains(text, "已停止"):
+		return "success"
+	default:
+		return "info"
+	}
+}
+
+func (p *MitmProxy) appendRecentEvent(message string) {
+	event := MitmProxyEvent{
+		At:      time.Now().Format(time.RFC3339),
+		Message: strings.TrimSpace(message),
+		Tone:    classifyMitmEventTone(message),
+	}
+	p.eventsMu.Lock()
+	defer p.eventsMu.Unlock()
+	p.recentEvents = append(p.recentEvents, event)
+	if len(p.recentEvents) > recentEventLimit {
+		p.recentEvents = append([]MitmProxyEvent(nil), p.recentEvents[len(p.recentEvents)-recentEventLimit:]...)
+	}
+}
+
+func (p *MitmProxy) recentEventsSnapshot() []MitmProxyEvent {
+	p.eventsMu.RLock()
+	defer p.eventsMu.RUnlock()
+	if len(p.recentEvents) == 0 {
+		return nil
+	}
+	out := make([]MitmProxyEvent, 0, len(p.recentEvents))
+	for i := len(p.recentEvents) - 1; i >= 0; i-- {
+		out = append(out, p.recentEvents[i])
+	}
+	return out
+}
+
+func (p *MitmProxy) SetWindsurfService(windsurfSvc *WindsurfService) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.windsurfSvc = windsurfSvc
+}
+
+func (p *MitmProxy) SetOutboundProxy(proxyURL string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.proxyURL = strings.TrimSpace(proxyURL)
+}
+
+// SetDebugDump 开启/关闭 proto dump（GetChatMessage 请求/响应字段树写入文件）
+func (p *MitmProxy) SetDebugDump(enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.debugDump = enabled
+}
+
+// DebugDumpEnabled 返回当前 debug dump 状态
+func (p *MitmProxy) DebugDumpEnabled() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.debugDump
+}
+
+func (p *MitmProxy) recordUpstreamFailure(kind upstreamFailureKind, detail, apiKey string) {
+	if kind == upstreamFailureNone {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastErrorKind = string(kind)
+	p.lastErrorSummary = strings.TrimSpace(detail)
+	p.lastErrorAt = time.Now().Format(time.RFC3339)
+	if apiKey != "" {
+		p.lastErrorKey = apiKey[:minStr(12, len(apiKey))]
+	} else {
+		p.lastErrorKey = ""
+	}
+}
+
 // SetPoolKeys configures the account pool from API keys.
 func (p *MitmProxy) SetPoolKeys(keys []string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	currentKey := ""
+	if len(p.poolKeys) > 0 && p.currentIdx >= 0 && p.currentIdx < len(p.poolKeys) {
+		currentKey = p.poolKeys[p.currentIdx]
+	}
+	addedKeys := make([]string, 0, len(keys))
+	previousCurrentKey := currentKey
 
 	p.poolKeys = keys
 	for _, k := range keys {
 		if _, ok := p.keyStates[k]; !ok {
 			p.keyStates[k] = newPoolKeyState(k)
+			addedKeys = append(addedKeys, k)
 		}
 	}
 	// Remove stale keys
@@ -164,8 +378,33 @@ func (p *MitmProxy) SetPoolKeys(keys []string) {
 		}
 	}
 
-	if p.currentIdx >= len(keys) {
+	if currentKey != "" {
+		for i, k := range keys {
+			if k == currentKey {
+				p.currentIdx = i
+				running := p.running
+				p.mu.Unlock()
+				if running && len(addedKeys) > 0 {
+					go p.prefetchSpecificJWTs(addedKeys, false)
+				}
+				return
+			}
+		}
+	}
+	if p.currentIdx < 0 || p.currentIdx >= len(keys) {
 		p.currentIdx = 0
+	}
+	newCurrentKey := ""
+	if len(keys) > 0 && p.currentIdx >= 0 && p.currentIdx < len(keys) {
+		newCurrentKey = keys[p.currentIdx]
+	}
+	running := p.running
+	p.mu.Unlock()
+	if running && len(addedKeys) > 0 {
+		go p.prefetchSpecificJWTs(addedKeys, false)
+	}
+	if running && newCurrentKey != "" && newCurrentKey != previousCurrentKey {
+		p.syncCurrentAPIKeyToClient(newCurrentKey)
 	}
 }
 
@@ -254,10 +493,14 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 	defer p.mu.RUnlock()
 
 	status := MitmProxyStatus{
-		Running:     p.running,
-		Port:        p.port,
-		HostsMapped: IsHostsMapped(TargetDomain),
-		CAInstalled: IsCAInstalled(),
+		Running:          p.running,
+		Port:             p.port,
+		HostsMapped:      IsHostsMapped(TargetDomain),
+		CAInstalled:      IsCAInstalled(),
+		LastErrorKind:    p.lastErrorKind,
+		LastErrorSummary: p.lastErrorSummary,
+		LastErrorAt:      p.lastErrorAt,
+		LastErrorKey:     p.lastErrorKey,
 	}
 
 	totalReqs := 0
@@ -278,13 +521,15 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 		p.jwtLock.RUnlock()
 
 		info := PoolKeyInfo{
-			KeyShort:       short,
-			Healthy:        state.Healthy,
-			HasJWT:         hasJWT,
-			RequestCount:   state.RequestCount,
-			SuccessCount:   state.SuccessCount,
-			TotalExhausted: state.TotalExhausted,
-			IsCurrent:      i == p.currentIdx,
+			KeyShort:         short,
+			Healthy:          state.Healthy,
+			RuntimeExhausted: state.RuntimeExhausted,
+			CooldownUntil:    state.CooldownUntil.Format(time.RFC3339),
+			HasJWT:           hasJWT,
+			RequestCount:     state.RequestCount,
+			SuccessCount:     state.SuccessCount,
+			TotalExhausted:   state.TotalExhausted,
+			IsCurrent:        i == p.currentIdx,
 		}
 		status.PoolStatus = append(status.PoolStatus, info)
 
@@ -293,7 +538,18 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 		}
 	}
 	status.TotalReqs = totalReqs
+	status.RecentEvents = p.recentEventsSnapshot()
 	return status
+}
+
+func (p *MitmProxy) CurrentAPIKey() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if len(p.poolKeys) == 0 || p.currentIdx < 0 || p.currentIdx >= len(p.poolKeys) {
+		return ""
+	}
+	return p.poolKeys[p.currentIdx]
 }
 
 // buildUpstreamTransport 构建出站 Transport，支持通过用户本地代理 (如 Clash) 访问上游
@@ -301,7 +557,7 @@ func (p *MitmProxy) buildUpstreamTransport() *http.Transport {
 	t := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
-			ServerName:        UpstreamHost,
+			ServerName:         UpstreamHost,
 		},
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
@@ -320,10 +576,21 @@ func (p *MitmProxy) buildUpstreamTransport() *http.Transport {
 
 // retryTransport 包装上游 Transport，在检测到额度耗尽时自动切号并重试
 type retryTransport struct {
-	base    http.RoundTripper
-	proxy   *MitmProxy
+	base     http.RoundTripper
+	proxy    *MitmProxy
 	maxRetry int
 }
+
+type upstreamFailureKind string
+
+const (
+	upstreamFailureNone       upstreamFailureKind = ""
+	upstreamFailureQuota      upstreamFailureKind = "quota"
+	upstreamFailureAuth       upstreamFailureKind = "auth"
+	upstreamFailureInternal   upstreamFailureKind = "internal"
+	upstreamFailurePermission upstreamFailureKind = "permission"
+	upstreamFailureGRPC       upstreamFailureKind = "grpc"
+)
 
 func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// 保存原始 body 以便重试时重放
@@ -358,23 +625,56 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return resp, nil
 		}
 
-		textLower := strings.ToLower(string(respBody))
-		isExhausted := rt.checkExhausted(textLower)
+		kind, detail := classifyUpstreamFailure(resp.Header.Get("grpc-status"), resp.Header.Get("grpc-message"), string(respBody))
+		isExhausted := kind == upstreamFailureQuota
+		isAuthFailure := kind == upstreamFailureAuth
+		usedKey := req.Header.Get("X-Pool-Key-Used")
 
-		if !isExhausted || attempt >= rt.maxRetry {
-			// 不是额度错误，或已达最大重试次数，返回
+		if (!isExhausted && !isAuthFailure) || attempt >= rt.maxRetry {
+			// 不是可重试的额度/认证错误，或已达最大重试次数，返回
+			if kind != upstreamFailureNone && kind != upstreamFailureQuota && kind != upstreamFailureAuth {
+				rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
+				rt.proxy.log("上游%s错误(不轮转): %s", kind.logLabel(), detail)
+			}
+			if kind == upstreamFailureAuth {
+				rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
+				rt.proxy.log("上游%s错误(已达重试上限): %s", kind.logLabel(), detail)
+			}
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			return resp, nil
 		}
 
-		// ★ 检测到额度耗尽，切号 + 重试
-		usedKey := req.Header.Get("X-Pool-Key-Used")
-		rt.proxy.mu.Lock()
-		if state := rt.proxy.keyStates[usedKey]; state != nil {
-			state.markExhausted()
+		if isAuthFailure {
+			refreshedJWT := rt.proxy.refreshJWTForKey(usedKey)
+			if len(refreshedJWT) > 0 {
+				newBody, replaced := ReplaceIdentityInBody(savedBody, []byte(usedKey), refreshedJWT)
+				if replaced {
+					req.Body = io.NopCloser(bytes.NewReader(newBody))
+					req.ContentLength = int64(len(newBody))
+				} else {
+					req.Body = io.NopCloser(bytes.NewReader(savedBody))
+					req.ContentLength = int64(len(savedBody))
+				}
+				req.Header.Set("Authorization", "Bearer "+string(refreshedJWT))
+				req.Header.Set("X-Pool-Key-Used", usedKey)
+				rt.proxy.log("★ 认证失败自动刷新 JWT(%d/%d): %s...",
+					attempt+1, rt.maxRetry,
+					usedKey[:minStr(12, len(usedKey))])
+				continue
+			}
+
+			rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
+			rt.proxy.log("JWT 刷新失败，尝试切到下一把 key: %s...", usedKey[:minStr(12, len(usedKey))])
+			rt.proxy.mu.Lock()
+			rotatedKey := rt.proxy.rotateKey()
+			rt.proxy.mu.Unlock()
+			if rotatedKey != "" {
+				rt.proxy.syncCurrentAPIKeyToClient(rotatedKey)
+			}
+		} else {
+			// ★ 检测到额度耗尽，切号 + 重试
+			rt.proxy.markRuntimeExhaustedAndRotate(usedKey, detail)
 		}
-		rt.proxy.rotateKey()
-		rt.proxy.mu.Unlock()
 
 		// 用新号重新构造请求
 		newKey, newJWT := rt.proxy.pickPoolKeyAndJWT()
@@ -396,36 +696,24 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Header.Set("Authorization", "Bearer "+string(newJWT))
 		req.Header.Set("X-Pool-Key-Used", newKey)
 
-		rt.proxy.log("★ 额度耗尽自动重试(%d/%d): %s... → %s...",
-			attempt+1, rt.maxRetry,
-			usedKey[:minStr(12, len(usedKey))],
-			newKey[:minStr(12, len(newKey))])
+		if isAuthFailure {
+			rt.proxy.log("★ 认证失败切换重试(%d/%d): %s... → %s...",
+				attempt+1, rt.maxRetry,
+				usedKey[:minStr(12, len(usedKey))],
+				newKey[:minStr(12, len(newKey))])
+		} else {
+			rt.proxy.log("★ 额度耗尽自动重试(%d/%d): %s... → %s...",
+				attempt+1, rt.maxRetry,
+				usedKey[:minStr(12, len(usedKey))],
+				newKey[:minStr(12, len(newKey))])
+		}
 	}
 
 	return nil, fmt.Errorf("超过最大重试次数")
 }
 
 func (rt *retryTransport) checkExhausted(textLower string) bool {
-	patterns := []string{
-		"resource_exhausted", "resource exhausted",
-		"not enough credits",
-		"daily usage quota has been exhausted",
-		"weekly usage quota has been exhausted",
-		"usage quota has been exhausted",
-		"quota has been exhausted",
-		"daily_quota_exhausted", "weekly_quota_exhausted",
-		"permission denied",
-	}
-	for _, pat := range patterns {
-		if strings.Contains(textLower, pat) {
-			return true
-		}
-	}
-	if (strings.Contains(textLower, "failed_precondition") || strings.Contains(textLower, "failed precondition")) &&
-		(strings.Contains(textLower, "quota") || strings.Contains(textLower, "usage") || strings.Contains(textLower, "credits")) {
-		return true
-	}
-	return false
+	return isQuotaExhaustedText(textLower)
 }
 
 func (p *MitmProxy) serve() {
@@ -528,6 +816,13 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
+	// Debug dump: GetChatMessage 请求
+	if p.DebugDumpEnabled() && strings.Contains(path, "GetChatMessage") {
+		if dumpPath, err := WriteProtoDump("req_"+pathTail, bodyBytes); err == nil {
+			p.log("📝 dump 请求: %s", dumpPath)
+		}
+	}
+
 	// Force Authorization header
 	req.Header.Set("Authorization", "Bearer "+string(poolJWT))
 
@@ -556,49 +851,59 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 	// Check for exhaustion/quota errors in ALL protobuf responses
 	isExhausted := false
 	isSuccess := false
+	exhaustedDetail := ""
 
 	if isProto && resp.Body != nil {
-		// ★ 检查所有非流式响应体：gRPC 额度错误可能是 HTTP 200 + chunked
-		shouldCheck := resp.ContentLength < 5000 || resp.StatusCode >= 400
-		shouldMarkSuccess := resp.ContentLength > 5000 && resp.StatusCode == 200
+		// 对小响应体直接完整读取；对对话/补全的大流式响应改为边转发边检测配额错误。
+		shouldCheckBuffered := (resp.ContentLength >= 0 && resp.ContentLength < 5000) || resp.StatusCode >= 400
+		shouldWatchStream := isBilling && resp.StatusCode == 200 && !shouldCheckBuffered
 
-		if shouldCheck {
+		if shouldCheckBuffered {
 			bodyBytes, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err == nil && len(bodyBytes) > 0 {
-				textLower := strings.ToLower(string(bodyBytes))
-
-				// ★ Exhaustion patterns — covers all known quota error messages
-				exhaustionPatterns := []string{
-					"resource_exhausted",
-					"resource exhausted",
-					"not enough credits",
-					"daily usage quota has been exhausted",
-					"weekly usage quota has been exhausted",
-					"usage quota has been exhausted",
-					"quota has been exhausted",
-					"daily_quota_exhausted",
-					"weekly_quota_exhausted",
-					"permission denied",
-				}
-				for _, pat := range exhaustionPatterns {
-					if strings.Contains(textLower, pat) {
-						isExhausted = true
-						p.log("额度耗尽: %s key=%s... [%s]", pathTail, usedKey[:minStr(12, len(usedKey))], pat)
-						break
-					}
-				}
-
-				// ★ FAILED_PRECONDITION / Failed precondition with quota/usage message
-				if !isExhausted &&
-					(strings.Contains(textLower, "failed_precondition") || strings.Contains(textLower, "failed precondition")) &&
-					(strings.Contains(textLower, "quota") || strings.Contains(textLower, "usage") || strings.Contains(textLower, "credits")) {
+				kind, detail := classifyUpstreamFailure(resp.Header.Get("grpc-status"), resp.Header.Get("grpc-message"), string(bodyBytes))
+				if kind == upstreamFailureQuota {
 					isExhausted = true
-					p.log("额度耗尽(precondition): %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
+					exhaustedDetail = detail
+					p.log("额度耗尽: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
+				} else if kind != upstreamFailureNone && isBilling {
+					p.recordUpstreamFailure(kind, detail, usedKey)
+					p.log("上游%s错误: %s key=%s...", kind.logLabel(), detail, usedKey[:minStr(12, len(usedKey))])
+				}
+				// Debug dump: GetChatMessage 响应（小包）
+				if p.DebugDumpEnabled() && strings.Contains(path, "GetChatMessage") {
+					if dumpPath, err := WriteProtoDump("resp_small_"+pathTail, bodyBytes); err == nil {
+						p.log("📝 dump 响应(buffered): %s", dumpPath)
+					}
 				}
 			}
 			resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		} else if shouldMarkSuccess && isBilling {
+		} else if shouldWatchStream {
+			// Debug dump: 对流式响应包装一个 tee 来捕获前几个 chunk
+			var dumpBody io.ReadCloser
+			if p.DebugDumpEnabled() && strings.Contains(path, "GetChatMessage") {
+				dumpBody = newDumpTeeBody(resp.Body, "resp_stream_"+pathTail, p)
+			}
+
+			baseBody := resp.Body
+			if dumpBody != nil {
+				baseBody = dumpBody
+			}
+			resp.Body = newQuotaStreamWatchBody(baseBody, func(detail string) {
+				p.log("流式额度耗尽: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
+				rotatedKey := p.markRuntimeExhaustedAndRotate(usedKey, detail)
+				if rotatedKey != "" {
+					p.log("★ 流式额度耗尽立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+				}
+			}, func() {
+				p.mu.Lock()
+				if state := p.keyStates[usedKey]; state != nil {
+					state.recordSuccess()
+				}
+				p.mu.Unlock()
+			})
+		} else if isBilling && resp.StatusCode == 200 {
 			isSuccess = true
 		}
 	}
@@ -618,54 +923,72 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 	}
 
 	// Update key state
-	p.mu.Lock()
-	state := p.keyStates[usedKey]
-	if state != nil {
-		if isSuccess && isBilling {
+	rotatedKey := ""
+	if isExhausted {
+		p.log("★ key 额度耗尽，立即轮转: %s...", usedKey[:minStr(12, len(usedKey))])
+		rotatedKey = p.markRuntimeExhaustedAndRotate(usedKey, exhaustedDetail)
+	} else {
+		p.mu.Lock()
+		state := p.keyStates[usedKey]
+		if state != nil && isSuccess && isBilling {
 			state.recordSuccess()
-		} else if isExhausted {
-			// ★ 额度耗尽 = 立即标记 + 轮转，不等连续错误
-			p.log("★ key 额度耗尽，立即轮转: %s...", usedKey[:minStr(12, len(usedKey))])
-			state.markExhausted()
-			p.rotateKey()
 		}
+		p.mu.Unlock()
 	}
-	p.mu.Unlock()
+	if rotatedKey != "" {
+		p.log("★ 额度耗尽已切换到: %s...", rotatedKey[:minStr(12, len(rotatedKey))])
+	}
 }
 
 // ── Pool key selection ──
 
 func (p *MitmProxy) pickPoolKeyAndJWT() (string, []byte) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if len(p.poolKeys) == 0 {
+		p.mu.Unlock()
 		return "", nil
 	}
 
 	// Check if current key is still available
 	currentKey := p.poolKeys[p.currentIdx]
 	state := p.keyStates[currentKey]
+	rotatedKey := ""
 	if state != nil && !state.isAvailable() {
 		// Current key cooling down, rotate
-		p.rotateKey()
+		rotatedKey = p.rotateKey()
 		currentKey = p.poolKeys[p.currentIdx]
 	}
+	currentIdx := p.currentIdx
+	keys := make([]string, len(p.poolKeys))
+	copy(keys, p.poolKeys)
+	p.mu.Unlock()
+	if rotatedKey != "" {
+		p.syncCurrentAPIKeyToClient(rotatedKey)
+	}
 
-	p.jwtLock.RLock()
-	jwt := p.keyStates[currentKey].JWT
-	p.jwtLock.RUnlock()
+	jwt := p.jwtBytesForKey(currentKey)
+	if len(jwt) == 0 {
+		jwt = p.ensureJWTForKey(currentKey)
+	}
 
 	// If current key has no JWT, find one that does
 	if len(jwt) == 0 {
-		for i := 0; i < len(p.poolKeys); i++ {
-			idx := (p.currentIdx + i) % len(p.poolKeys)
-			k := p.poolKeys[idx]
-			p.jwtLock.RLock()
-			j := p.keyStates[k].JWT
-			p.jwtLock.RUnlock()
+		for i := 0; i < len(keys); i++ {
+			idx := (currentIdx + i) % len(keys)
+			k := keys[idx]
+			j := p.jwtBytesForKey(k)
+			if len(j) == 0 {
+				j = p.ensureJWTForKey(k)
+			}
 			if len(j) > 0 {
-				p.currentIdx = idx
+				p.mu.Lock()
+				for liveIdx, liveKey := range p.poolKeys {
+					if liveKey == k {
+						p.currentIdx = liveIdx
+						break
+					}
+				}
+				p.mu.Unlock()
 				return k, j
 			}
 		}
@@ -674,15 +997,14 @@ func (p *MitmProxy) pickPoolKeyAndJWT() (string, []byte) {
 	return currentKey, jwt
 }
 
-func (p *MitmProxy) rotateKey() {
+func (p *MitmProxy) rotateKey() string {
 	if len(p.poolKeys) <= 1 {
-		return
+		if len(p.poolKeys) == 1 {
+			return p.poolKeys[p.currentIdx]
+		}
+		return ""
 	}
-
 	oldKey := p.poolKeys[p.currentIdx]
-	if state := p.keyStates[oldKey]; state != nil {
-		state.markExhausted()
-	}
 
 	// Find next available key
 	for i := 1; i < len(p.poolKeys); i++ {
@@ -692,7 +1014,7 @@ func (p *MitmProxy) rotateKey() {
 			p.currentIdx = idx
 			p.log("轮转: %s... → %s...", oldKey[:minStr(12, len(oldKey))],
 				p.poolKeys[idx][:minStr(12, len(p.poolKeys[idx]))])
-			return
+			return p.poolKeys[idx]
 		}
 	}
 
@@ -711,12 +1033,13 @@ func (p *MitmProxy) rotateKey() {
 	}
 	p.currentIdx = bestIdx
 	p.log("所有 key 耗尽，选最短冷却: %s...", p.poolKeys[bestIdx][:minStr(12, len(p.poolKeys[bestIdx]))])
+	return p.poolKeys[bestIdx]
 }
 
 // SwitchToKey 手动切换 MITM 代理到指定 API Key（前端「切换到此账号」「下一席位」调用）
 func (p *MitmProxy) SwitchToKey(apiKey string) bool {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	switchedKey := ""
 
 	for i, k := range p.poolKeys {
 		if k == apiKey {
@@ -727,10 +1050,16 @@ func (p *MitmProxy) SwitchToKey(apiKey string) bool {
 				state.ConsecutiveErrs = 0
 			}
 			p.log("手动切换: → %s...", apiKey[:minStr(12, len(apiKey))])
-			return true
+			switchedKey = k
+			break
 		}
 	}
-	return false
+	p.mu.Unlock()
+	if switchedKey == "" {
+		return false
+	}
+	p.syncCurrentAPIKeyToClient(switchedKey)
+	return true
 }
 
 // ── JWT management ──
@@ -747,31 +1076,99 @@ func (p *MitmProxy) updateJWT(apiKey string, jwt []byte) {
 	p.jwtLock.Unlock()
 }
 
+func (p *MitmProxy) clearJWT(apiKey string) {
+	p.mu.RLock()
+	state := p.keyStates[apiKey]
+	p.mu.RUnlock()
+	if state == nil {
+		return
+	}
+	p.jwtLock.Lock()
+	state.JWT = nil
+	p.jwtLock.Unlock()
+}
+
+func (p *MitmProxy) jwtBytesForKey(apiKey string) []byte {
+	p.mu.RLock()
+	state := p.keyStates[apiKey]
+	p.mu.RUnlock()
+	if state == nil {
+		return nil
+	}
+	p.jwtLock.RLock()
+	defer p.jwtLock.RUnlock()
+	if len(state.JWT) == 0 {
+		return nil
+	}
+	jwt := make([]byte, len(state.JWT))
+	copy(jwt, state.JWT)
+	return jwt
+}
+
+func (p *MitmProxy) ensureJWTForKey(apiKey string) []byte {
+	if apiKey == "" || p.windsurfSvc == nil || !strings.HasPrefix(apiKey, "sk-ws-") {
+		return nil
+	}
+	if jwt := p.jwtBytesForKey(apiKey); len(jwt) > 0 {
+		return jwt
+	}
+	jwt, err := getJWTByAPIKeyFn(p.windsurfSvc, apiKey)
+	if err != nil {
+		p.log("JWT 按需获取失败: %s... (%v)", apiKey[:minStr(12, len(apiKey))], err)
+		return nil
+	}
+	out := []byte(jwt)
+	p.updateJWT(apiKey, out)
+	p.jwtOnce.Do(func() {
+		close(p.jwtReady)
+	})
+	p.log("JWT 按需获取成功: %s... (%dB)", apiKey[:minStr(12, len(apiKey))], len(out))
+	return out
+}
+
+func (p *MitmProxy) refreshJWTForKey(apiKey string) []byte {
+	if apiKey == "" || p.windsurfSvc == nil || !strings.HasPrefix(apiKey, "sk-ws-") {
+		return nil
+	}
+	p.clearJWT(apiKey)
+	jwt, err := getJWTByAPIKeyFn(p.windsurfSvc, apiKey)
+	if err != nil {
+		p.log("JWT 强制刷新失败: %s... (%v)", apiKey[:minStr(12, len(apiKey))], err)
+		return nil
+	}
+	out := []byte(jwt)
+	p.updateJWT(apiKey, out)
+	p.jwtOnce.Do(func() {
+		close(p.jwtReady)
+	})
+	p.log("JWT 强制刷新成功: %s... (%dB)", apiKey[:minStr(12, len(apiKey))], len(out))
+	return out
+}
+
+func (p *MitmProxy) prefetchSpecificJWTs(keys []string, force bool) {
+	if force {
+		p.log("开始强制刷新 %d 个 key 的 JWT...", len(keys))
+	} else {
+		p.log("开始预取 %d 个 key 的 JWT...", len(keys))
+	}
+	for _, key := range keys {
+		if !force && len(p.jwtBytesForKey(key)) > 0 {
+			continue
+		}
+		if force {
+			_ = p.refreshJWTForKey(key)
+			continue
+		}
+		_ = p.ensureJWTForKey(key)
+	}
+}
+
 func (p *MitmProxy) prefetchJWTs() {
 	p.mu.RLock()
 	keys := make([]string, len(p.poolKeys))
 	copy(keys, p.poolKeys)
 	p.mu.RUnlock()
-
-	p.log("开始预取 %d 个 key 的 JWT...", len(keys))
-
-	for _, key := range keys {
-		if !strings.HasPrefix(key, "sk-ws-") {
-			continue
-		}
-		jwt, err := p.windsurfSvc.GetJWTByAPIKey(key)
-		if err != nil {
-			p.log("JWT 获取失败: %s... (%v)", key[:minStr(12, len(key))], err)
-			continue
-		}
-		p.updateJWT(key, []byte(jwt))
-		p.log("JWT 获取成功: %s... (%dB)", key[:minStr(12, len(key))], len(jwt))
-
-		// Signal that at least one JWT is ready
-		p.jwtOnce.Do(func() {
-			close(p.jwtReady)
-		})
-	}
+	p.prefetchSpecificJWTs(keys, false)
 }
 
 func (p *MitmProxy) jwtRefreshLoop() {
@@ -784,7 +1181,11 @@ func (p *MitmProxy) jwtRefreshLoop() {
 			return
 		case <-ticker.C:
 			p.log("定时刷新 JWT...")
-			p.prefetchJWTs()
+			p.mu.RLock()
+			keys := make([]string, len(p.poolKeys))
+			copy(keys, p.poolKeys)
+			p.mu.RUnlock()
+			p.prefetchSpecificJWTs(keys, true)
 		}
 	}
 }
@@ -803,4 +1204,108 @@ func suffix3(s string) string {
 		return ""
 	}
 	return s[len(s)-3:]
+}
+
+func (k upstreamFailureKind) logLabel() string {
+	switch k {
+	case upstreamFailureQuota:
+		return "额度"
+	case upstreamFailureAuth:
+		return "认证"
+	case upstreamFailureInternal:
+		return "内部"
+	case upstreamFailurePermission:
+		return "权限"
+	case upstreamFailureGRPC:
+		return "gRPC"
+	default:
+		return "未知"
+	}
+}
+
+func decodeGRPCMessage(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if decoded, err := url.QueryUnescape(raw); err == nil && decoded != "" {
+		return decoded
+	}
+	return raw
+}
+
+func classifyUpstreamFailure(grpcStatus, grpcMessage, bodyText string) (upstreamFailureKind, string) {
+	status := strings.TrimSpace(grpcStatus)
+	msg := decodeGRPCMessage(grpcMessage)
+	msgLower := strings.ToLower(msg)
+	bodyLower := strings.ToLower(bodyText)
+	combined := strings.TrimSpace(bodyLower + "\n" + msgLower)
+
+	if status == "8" || isQuotaExhaustedText(combined) {
+		return upstreamFailureQuota, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if status == "16" || strings.Contains(combined, "unauthenticated") || strings.Contains(combined, "authentication credentials") {
+		return upstreamFailureAuth, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if strings.Contains(combined, `"code":"permission_denied"`) ||
+		strings.Contains(combined, "'code':'permission_denied'") ||
+		strings.Contains(combined, "[permission_denied]") ||
+		strings.Contains(combined, "api server wire error: permission denied") ||
+		strings.Contains(combined, "permission_denied") {
+		return upstreamFailureAuth, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if status == "13" || strings.Contains(combined, "internal server error") || strings.Contains(combined, "error number 13") {
+		return upstreamFailureInternal, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if status == "7" || strings.Contains(combined, "permission denied") || strings.Contains(combined, "unauthorized") || strings.Contains(combined, "forbidden") {
+		return upstreamFailurePermission, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if status != "" && status != "0" {
+		return upstreamFailureGRPC, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	return upstreamFailureNone, ""
+}
+
+func formatUpstreamFailureDetail(grpcStatus, grpcMessage, bodyText string) string {
+	parts := make([]string, 0, 3)
+	if s := strings.TrimSpace(grpcStatus); s != "" {
+		parts = append(parts, "grpc-status="+s)
+	}
+	if s := strings.TrimSpace(grpcMessage); s != "" {
+		parts = append(parts, "grpc-message="+truncate(s, 140))
+	}
+	body := strings.TrimSpace(bodyText)
+	if body != "" {
+		parts = append(parts, "body="+truncate(body, 180))
+	}
+	if len(parts) == 0 {
+		return "无上游细节"
+	}
+	return strings.Join(parts, " ")
+}
+
+func isQuotaExhaustedText(textLower string) bool {
+	patterns := []string{
+		"resource_exhausted",
+		"resource exhausted",
+		"not enough credits",
+		"daily usage quota has been exhausted",
+		"weekly usage quota has been exhausted",
+		"usage quota has been exhausted",
+		"usage quota is exhausted",
+		"included usage quota is exhausted",
+		"quota has been exhausted",
+		"quota is exhausted",
+		"quota exhausted",
+		"daily_quota_exhausted",
+		"weekly_quota_exhausted",
+		"purchase extra usage",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(textLower, pat) {
+			return true
+		}
+	}
+	return (strings.Contains(textLower, "failed_precondition") || strings.Contains(textLower, "failed precondition")) &&
+		(strings.Contains(textLower, "quota") || strings.Contains(textLower, "usage") || strings.Contains(textLower, "credits"))
 }

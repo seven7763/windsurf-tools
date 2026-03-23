@@ -14,6 +14,8 @@ export function AutoSwitchToNext(arg1:string,arg2:string):Promise<string>;
 
 export function CheckPatchStatus(arg1:string):Promise<boolean>;
 
+export function ControlBackgroundService(arg1:string):Promise<void>;
+
 export function DeleteAccount(arg1:string):Promise<void>;
 
 export function DeleteExpiredAccounts():Promise<number>;
@@ -26,11 +28,21 @@ export function GetAllAccounts():Promise<Array<models.Account>>;
 
 export function GetAppStoragePath():Promise<string>;
 
+export function GetBackgroundServiceStatus():Promise<main.BackgroundServiceStatus>;
+
 export function GetCurrentWindsurfAuth():Promise<services.WindsurfAuthJSON>;
+
+export function GetDesktopRuntimeStatus():Promise<main.DesktopRuntimeStatus>;
 
 export function GetMitmCAPath():Promise<string>;
 
+export function GetMitmDebugDumpEnabled():Promise<boolean>;
+
 export function GetMitmProxyStatus():Promise<services.MitmProxyStatus>;
+
+export function GetOpenAIRelayStatus():Promise<services.OpenAIRelayStatus>;
+
+export function GetProtoDumpDir():Promise<string>;
 
 export function GetSettings():Promise<models.Settings>;
 
@@ -43,6 +55,8 @@ export function ImportByEmailPassword(arg1:Array<main.EmailPasswordItem>):Promis
 export function ImportByJWT(arg1:Array<main.JWTItem>):Promise<Array<main.ImportResult>>;
 
 export function ImportByRefreshToken(arg1:Array<main.TokenItem>):Promise<Array<main.ImportResult>>;
+
+export function OpenAccountInIsolatedWindow(arg1:string):Promise<string>;
 
 export function RefreshAccountQuota(arg1:string):Promise<void>;
 
@@ -62,10 +76,16 @@ export function SetupMitmHosts():Promise<void>;
 
 export function StartMitmProxy():Promise<void>;
 
+export function StartOpenAIRelay(arg1:number,arg2:string):Promise<void>;
+
 export function StopMitmProxy():Promise<void>;
+
+export function StopOpenAIRelay():Promise<void>;
 
 export function SwitchAccount(arg1:string):Promise<void>;
 
 export function TeardownMitm():Promise<void>;
+
+export function ToggleMitmDebugDump(arg1:boolean):Promise<void>;
 
 export function UpdateSettings(arg1:models.Settings):Promise<void>;

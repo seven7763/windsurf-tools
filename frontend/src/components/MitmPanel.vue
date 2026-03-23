@@ -17,6 +17,7 @@ import { APIInfo } from '../api/wails'
 import { confirmDialog, showToast } from '../utils/toast'
 import { useSettingsStore } from '../stores/useSettingsStore'
 import { useMitmStatusStore } from '../stores/useMitmStatusStore'
+import { formatDateTimeAsiaShanghai } from '../utils/datetimeAsia'
 
 const settingsStore = useSettingsStore()
 const mitmStore = useMitmStatusStore()
@@ -28,10 +29,68 @@ const error = ref('')
 const poolCount = computed(() => status.value?.pool_status?.length ?? 0)
 const totalReqs = computed(() => status.value?.total_requests ?? 0)
 const healthyKeys = computed(() => status.value?.pool_status?.filter((item) => item.healthy).length ?? 0)
+const runtimeExhaustedKeys = computed(() => status.value?.pool_status?.filter((item) => item.runtime_exhausted).length ?? 0)
 const activeKey = computed(() => status.value?.pool_status?.find((item) => item.is_current) ?? null)
 
 const mitmOnly = computed(() => settingsStore.settings?.mitm_only === true)
 const mitmTunMode = computed(() => settingsStore.settings?.mitm_tun_mode === true)
+type RecentMitmEvent = {
+  at?: string
+  message?: string
+  tone?: string
+}
+const recentEvents = computed<RecentMitmEvent[]>(() => {
+  const raw = (status.value as unknown as { recent_events?: RecentMitmEvent[] } | null)?.recent_events
+  return Array.isArray(raw) ? raw.slice(0, 8) : []
+})
+const lastProxyIssue = computed(() => {
+  const rawKind = String(status.value?.last_error_kind || '').trim()
+  const summary = String(status.value?.last_error_summary || '').trim()
+  if (!rawKind && !summary) {
+    return null
+  }
+  const key = String(status.value?.last_error_key || '').trim()
+  const at = String(status.value?.last_error_at || '').trim()
+  const labelMap: Record<string, string> = {
+    quota: '额度错误',
+    internal: '上游内部错误',
+    permission: '权限错误',
+    grpc: 'gRPC 错误',
+  }
+  return {
+    kind: rawKind || 'unknown',
+    label: labelMap[rawKind] || '未知错误',
+    summary: summary || '未提供更多细节',
+    key,
+    at,
+  }
+})
+
+const lastProxyIssueTone = computed(() => {
+  switch (lastProxyIssue.value?.kind) {
+    case 'quota':
+      return 'border-amber-500/20 bg-amber-500/[0.07] text-amber-700 dark:text-amber-300'
+    case 'permission':
+      return 'border-rose-500/20 bg-rose-500/[0.07] text-rose-700 dark:text-rose-300'
+    case 'internal':
+      return 'border-orange-500/20 bg-orange-500/[0.07] text-orange-700 dark:text-orange-300'
+    default:
+      return 'border-slate-500/20 bg-slate-500/[0.07] text-slate-700 dark:text-slate-300'
+  }
+})
+
+const recentEventToneClass = (tone?: string) => {
+  switch (tone) {
+    case 'success':
+      return 'border-emerald-500/15 bg-emerald-500/[0.06] text-emerald-700 dark:text-emerald-300'
+    case 'warning':
+      return 'border-amber-500/15 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300'
+    case 'danger':
+      return 'border-rose-500/15 bg-rose-500/[0.06] text-rose-700 dark:text-rose-300'
+    default:
+      return 'border-black/[0.05] bg-black/[0.03] text-slate-700 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-slate-300'
+  }
+}
 
 const emptyPoolHint = computed(() =>
   mitmOnly.value
@@ -166,7 +225,7 @@ const handleTeardown = async () => {
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-2 text-right">
+        <div class="grid grid-cols-2 gap-2 text-right sm:grid-cols-4">
           <div class="rounded-[16px] bg-white/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.06]">
             <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:text-ios-textSecondaryDark">号池</div>
             <div class="mt-1 text-[18px] font-extrabold text-ios-text dark:text-ios-textDark">{{ poolCount }}</div>
@@ -174,6 +233,10 @@ const handleTeardown = async () => {
           <div class="rounded-[16px] bg-white/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.06]">
             <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:text-ios-textSecondaryDark">健康</div>
             <div class="mt-1 text-[18px] font-extrabold text-ios-text dark:text-ios-textDark">{{ healthyKeys }}</div>
+          </div>
+          <div class="rounded-[16px] bg-white/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.06]">
+            <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:text-ios-textSecondaryDark">运行时见底</div>
+            <div class="mt-1 text-[18px] font-extrabold text-ios-text dark:text-ios-textDark">{{ runtimeExhaustedKeys }}</div>
           </div>
           <div class="rounded-[16px] bg-white/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.06]">
             <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:text-ios-textSecondaryDark">请求</div>
@@ -202,6 +265,82 @@ const handleTeardown = async () => {
           @update:modelValue="handleToggle"
           :disabled="loading"
         />
+      </div>
+
+      <div
+        v-if="lastProxyIssue"
+        class="rounded-[18px] border px-4 py-3 shadow-sm"
+        :class="lastProxyIssueTone"
+      >
+        <div class="flex items-start gap-3">
+          <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-black/[0.05] dark:bg-white/[0.08]">
+            <AlertTriangle class="h-4 w-4" stroke-width="2.4" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="text-[13px] font-bold">最近一次上游错误</div>
+              <span class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide dark:bg-white/[0.08]">
+                {{ lastProxyIssue.label }}
+              </span>
+              <span v-if="lastProxyIssue.key" class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[10px] font-mono dark:bg-white/[0.08]">
+                {{ lastProxyIssue.key }}
+              </span>
+            </div>
+            <div class="mt-1 text-[12px] leading-relaxed break-words">
+              {{ lastProxyIssue.summary }}
+            </div>
+            <div v-if="lastProxyIssue.at" class="mt-2 text-[11px] opacity-80">
+              {{ formatDateTimeAsiaShanghai(lastProxyIssue.at) }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="recentEvents.length"
+        class="rounded-[22px] border border-black/[0.05] bg-white/70 p-4 shadow-sm dark:border-white/[0.06] dark:bg-white/[0.04]"
+      >
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-black/[0.04] text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark">
+              <Sparkles class="h-4 w-4" stroke-width="2.4" />
+            </div>
+            <div>
+              <div class="text-[13px] font-bold text-ios-text dark:text-ios-textDark">最近代理事件</div>
+              <div class="text-[11px] text-ios-textSecondary dark:text-ios-textSecondaryDark">便于确认 JWT 预热、轮转和上游错误是否真的发生。</div>
+            </div>
+          </div>
+          <span class="rounded-full bg-black/[0.04] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark">
+            {{ recentEvents.length }} 条
+          </span>
+        </div>
+
+        <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+          <div
+            v-for="(event, index) in recentEvents"
+            :key="`${event.at || 'mitm'}-${index}`"
+            class="rounded-[16px] border px-3 py-2.5"
+            :class="recentEventToneClass(event.tone)"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="break-words text-[12px] font-medium leading-relaxed">
+                  {{ event.message || '未提供事件详情' }}
+                </div>
+                <div
+                  v-if="event.at"
+                  class="mt-1 text-[10px] opacity-80"
+                  :title="formatDateTimeAsiaShanghai(event.at)"
+                >
+                  {{ formatDateTimeAsiaShanghai(event.at) }}
+                </div>
+              </div>
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-black/[0.05] dark:bg-white/[0.08]">
+                {{ event.tone || 'info' }}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div
@@ -278,8 +417,9 @@ const handleTeardown = async () => {
             :key="k.key_short"
             class="flex items-center justify-between gap-3 rounded-[16px] border px-3 py-2.5 text-[12px] font-mono transition-all"
             :class="{
-              'border-emerald-500/15 bg-emerald-500/[0.07]': k.is_current && k.healthy,
-              'border-rose-500/15 bg-rose-500/[0.06]': !k.healthy,
+              'border-emerald-500/15 bg-emerald-500/[0.07]': k.is_current && k.healthy && !k.runtime_exhausted,
+              'border-amber-500/15 bg-amber-500/[0.08]': k.runtime_exhausted,
+              'border-rose-500/15 bg-rose-500/[0.06]': !k.runtime_exhausted && !k.healthy,
               'border-black/[0.05] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]': !k.is_current && k.healthy,
             }"
           >
@@ -287,17 +427,26 @@ const handleTeardown = async () => {
               <span
                 class="h-2 w-2 rounded-full shrink-0"
                 :class="{
-                  'bg-emerald-500': k.healthy && k.has_jwt,
-                  'bg-amber-500': k.healthy && !k.has_jwt,
-                  'bg-rose-500': !k.healthy,
+                  'bg-amber-500': k.runtime_exhausted,
+                  'bg-emerald-500': !k.runtime_exhausted && k.healthy && k.has_jwt,
+                  'bg-sky-500': !k.runtime_exhausted && k.healthy && !k.has_jwt,
+                  'bg-rose-500': !k.runtime_exhausted && !k.healthy,
                 }"
               />
               <span class="truncate text-ios-text dark:text-ios-textDark">{{ k.key_short }}</span>
               <span v-if="k.is_current" class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">ACTIVE</span>
+              <span v-if="k.runtime_exhausted" class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">RUNTIME EXHAUSTED</span>
             </div>
             <div class="flex items-center gap-3 shrink-0 text-ios-textSecondary dark:text-ios-textSecondaryDark">
               <span>{{ k.success_count }}/{{ k.request_count }}</span>
               <span v-if="k.total_exhausted > 0" class="text-rose-500">⟲{{ k.total_exhausted }}</span>
+              <span
+                v-if="k.runtime_exhausted && k.cooldown_until"
+                class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[10px] font-semibold dark:bg-white/[0.08]"
+                :title="formatDateTimeAsiaShanghai(k.cooldown_until)"
+              >
+                冷却至 {{ formatDateTimeAsiaShanghai(k.cooldown_until) }}
+              </span>
               <component
                 :is="k.has_jwt ? CheckCircle : XCircle"
                 class="h-3.5 w-3.5"

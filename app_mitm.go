@@ -3,8 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"windsurf-tools-wails/backend/models"
 	"windsurf-tools-wails/backend/services"
-	"windsurf-tools-wails/backend/utils"
 )
 
 // ═══════════════════════════════════════
@@ -18,18 +19,28 @@ func (a *App) syncMitmPoolKeys() {
 	settings := a.store.GetSettings()
 	filter := settings.AutoSwitchPlanFilter
 
-	var keys []string
-	for _, acc := range accounts {
-		if acc.WindsurfAPIKey == "" || acc.Status == "disabled" {
-			continue
-		}
-		// 按计划筛选
-		if !utils.PlanFilterMatch(filter, acc.PlanName) {
-			continue
-		}
-		keys = append(keys, acc.WindsurfAPIKey)
-	}
+	keys := collectEligibleMitmAPIKeys(accounts, filter)
 	a.mitmProxy.SetPoolKeys(keys)
+}
+
+func collectEligibleMitmAPIKeys(accounts []models.Account, planFilter string) []string {
+	var keys []string
+	seen := make(map[string]struct{})
+	for _, acc := range accounts {
+		if !accountEligibleForUsage(&acc, planFilter, true) {
+			continue
+		}
+		key := strings.TrimSpace(acc.WindsurfAPIKey)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // StartMitmProxy starts the MITM reverse proxy with full system setup.
@@ -106,16 +117,32 @@ func (a *App) applyMitmSystemSetup() {
 
 // injectFirstPoolKeyToCodeiumConfig 将号池中第一个可用 API Key 写入 Codeium config
 func (a *App) injectFirstPoolKeyToCodeiumConfig() {
-	accounts := a.store.GetAllAccounts()
-	for _, acc := range accounts {
-		if acc.WindsurfAPIKey != "" && acc.Status != "disabled" {
-			_ = services.InjectCodeiumConfig(acc.WindsurfAPIKey)
-			return
-		}
+	keys := collectEligibleMitmAPIKeys(a.store.GetAllAccounts(), a.store.GetSettings().AutoSwitchPlanFilter)
+	if len(keys) == 0 {
+		return
 	}
+	_ = services.InjectCodeiumConfig(keys[0])
 }
 
 // GetMitmCAPath returns the CA certificate file path.
 func (a *App) GetMitmCAPath() string {
 	return services.GetCACertPath()
+}
+
+// ToggleMitmDebugDump 开启/关闭 MITM proto dump
+func (a *App) ToggleMitmDebugDump(enabled bool) {
+	a.mitmProxy.SetDebugDump(enabled)
+	settings := a.store.GetSettings()
+	settings.MitmDebugDump = enabled
+	a.store.UpdateSettings(settings)
+}
+
+// GetMitmDebugDumpEnabled 返回当前 debug dump 状态
+func (a *App) GetMitmDebugDumpEnabled() bool {
+	return a.mitmProxy.DebugDumpEnabled()
+}
+
+// GetProtoDumpDir 返回 proto dump 文件目录路径
+func (a *App) GetProtoDumpDir() string {
+	return services.ProtoDumpDir()
 }

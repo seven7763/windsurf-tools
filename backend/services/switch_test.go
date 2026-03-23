@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -71,5 +72,19 @@ func TestSwitchServiceGetWindsurfAuthPathPrefersExistingFile(t *testing.T) {
 	}
 	if filepath.Clean(gotPath) != filepath.Clean(wantPath) {
 		t.Fatalf("GetWindsurfAuthPath() = %q, want %q", gotPath, wantPath)
+	}
+}
+
+func TestWriteAuthFile(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), ".codeium", "windsurf", "config", "windsurf_auth.json")
+	if err := WriteAuthFile(authPath, "jwt-token", "writer@example.com"); err != nil {
+		t.Fatalf("WriteAuthFile() error = %v", err)
+	}
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if got := string(data); !strings.Contains(got, `"email": "writer@example.com"`) {
+		t.Fatalf("WriteAuthFile() output missing email: %s", got)
 	}
 }

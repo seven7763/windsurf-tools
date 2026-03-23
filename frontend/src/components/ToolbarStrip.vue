@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAccountStore } from '../stores/useAccountStore'
 import { useSystemStore } from '../stores/useSystemStore'
 import { APIInfo } from '../api/wails'
 import { WindowShow } from '../../wailsjs/runtime/runtime'
-import { Maximize2 } from 'lucide-vue-next'
+import { Loader2, Maximize2, RefreshCcw } from 'lucide-vue-next'
+import { formatResetCountdownZH, formatSyncTimeLine } from '../utils/datetimeAsia'
+import { getPlanLabel, parsePercent } from '../utils/account'
 
 const accountStore = useAccountStore()
 const systemStore = useSystemStore()
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
+const refreshBusy = ref(false)
 
 const currentAccount = computed(() => {
   const e = (systemStore.currentAuthEmail || '').trim().toLowerCase()
@@ -19,37 +22,154 @@ const currentAccount = computed(() => {
   return accountStore.accounts.find((a) => (a.email || '').trim().toLowerCase() === e) ?? null
 })
 
-const dailyPct = computed(() => currentAccount.value?.daily_remaining || '—')
+const getEmailUsername = (email?: string) => {
+  const clean = String(email || '').trim()
+  if (!clean) {
+    return ''
+  }
+  const [local] = clean.split('@')
+  return local || clean
+}
 
-const emailShort = computed(() => {
-  const em = currentAccount.value?.email || systemStore.currentAuthEmail || '未识别会话'
-  return em.length > 30 ? `${em.slice(0, 28)}…` : em
+const currentTitle = computed(() => {
+  const acc = currentAccount.value
+  if (acc) {
+    const nickname = String(acc.nickname || '').trim()
+    return nickname || getEmailUsername(acc.email) || '当前账号'
+  }
+  if (systemStore.currentAuthEmail?.trim()) {
+    return '当前账号未入池'
+  }
+  return '未识别会话'
 })
 
-const ringPct = computed(() => {
-  const s = String(dailyPct.value || '').replace('%', '').trim()
-  const n = parseFloat(s)
-  if (!Number.isFinite(n)) {
+const currentEmail = computed(() => {
+  const raw = currentAccount.value?.email || systemStore.currentAuthEmail || '回到主窗口完成登录或导入'
+  return raw.length > 34 ? `${raw.slice(0, 32)}…` : raw
+})
+
+const planLabel = computed(() => getPlanLabel(currentAccount.value?.plan_name))
+const dailyPctText = computed(() => currentAccount.value?.daily_remaining || '待同步')
+const weeklyPctText = computed(() => currentAccount.value?.weekly_remaining || '待同步')
+
+const normalizePercent = (value?: string) => {
+  const n = parsePercent(value)
+  if (n === null) {
     return 0
   }
   return Math.max(0, Math.min(100, n))
+}
+
+const dailyPercent = computed(() => normalizePercent(currentAccount.value?.daily_remaining))
+const weeklyPercent = computed(() => normalizePercent(currentAccount.value?.weekly_remaining))
+
+const quotaTone = computed<'good' | 'warn' | 'danger' | 'muted'>(() => {
+  if (!currentAccount.value) {
+    return 'muted'
+  }
+  const candidates = [dailyPercent.value, weeklyPercent.value].filter((v) => Number.isFinite(v) && v > 0)
+  const fallback = [dailyPercent.value, weeklyPercent.value].filter((v) => Number.isFinite(v))
+  const values = candidates.length > 0 ? candidates : fallback
+  if (!values.length) {
+    return 'muted'
+  }
+  const lowest = Math.min(...values)
+  if (lowest <= 0) {
+    return 'danger'
+  }
+  if (lowest < 20) {
+    return 'warn'
+  }
+  return 'good'
 })
 
-const ringRadius = 12.5
-const ringCirc = 2 * Math.PI * ringRadius
+const toneClasses = computed(() => {
+  switch (quotaTone.value) {
+    case 'danger':
+      return {
+        shell: 'border-rose-500/25 bg-[linear-gradient(135deg,rgba(255,255,255,0.72),rgba(255,236,240,0.48))] dark:bg-[linear-gradient(135deg,rgba(38,12,18,0.78),rgba(18,10,14,0.62))]',
+        orb: 'bg-rose-400/45',
+        value: 'text-rose-700 dark:text-rose-200',
+        badge: 'bg-rose-500/12 text-rose-700 dark:text-rose-200',
+        bar: 'from-rose-500 via-orange-400 to-amber-300',
+      }
+    case 'warn':
+      return {
+        shell: 'border-amber-500/25 bg-[linear-gradient(135deg,rgba(255,255,255,0.74),rgba(255,244,220,0.55))] dark:bg-[linear-gradient(135deg,rgba(52,32,8,0.78),rgba(24,18,10,0.62))]',
+        orb: 'bg-amber-400/45',
+        value: 'text-amber-700 dark:text-amber-200',
+        badge: 'bg-amber-500/12 text-amber-700 dark:text-amber-200',
+        bar: 'from-amber-500 via-yellow-400 to-lime-300',
+      }
+    case 'good':
+      return {
+        shell: 'border-cyan-400/20 bg-[linear-gradient(135deg,rgba(255,255,255,0.78),rgba(222,247,255,0.55))] dark:bg-[linear-gradient(135deg,rgba(8,28,40,0.82),rgba(9,16,24,0.64))]',
+        orb: 'bg-cyan-400/40',
+        value: 'text-cyan-700 dark:text-cyan-200',
+        badge: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-200',
+        bar: 'from-cyan-500 via-sky-400 to-emerald-300',
+      }
+    default:
+      return {
+        shell: 'border-white/20 bg-[linear-gradient(135deg,rgba(255,255,255,0.74),rgba(240,242,248,0.48))] dark:bg-[linear-gradient(135deg,rgba(28,28,30,0.82),rgba(18,18,20,0.64))]',
+        orb: 'bg-slate-400/35',
+        value: 'text-slate-700 dark:text-slate-200',
+        badge: 'bg-slate-500/12 text-slate-700 dark:text-slate-200',
+        bar: 'from-slate-500 via-slate-400 to-slate-300',
+      }
+  }
+})
 
-const dashOffset = computed(() => ringCirc * (1 - ringPct.value / 100))
+const quotaHeadline = computed(() => {
+  if (!currentAccount.value) {
+    return systemStore.currentAuthEmail?.trim() ? '待接管' : '未登录'
+  }
+  return dailyPctText.value
+})
 
-async function refreshOne() {
-  const acc = currentAccount.value
-  if (!acc?.id) {
+const quotaCaption = computed(() => {
+  if (!currentAccount.value) {
+    return systemStore.currentAuthEmail?.trim()
+      ? '当前会话还没接入号池'
+      : '先登录或导入账号'
+  }
+  return '当前账号日剩余额度'
+})
+
+const nextResetHint = computed(() => {
+  if (currentAccount.value?.daily_reset_at) {
+    return formatResetCountdownZH(currentAccount.value.daily_reset_at)
+  }
+  if (currentAccount.value?.weekly_reset_at) {
+    return formatResetCountdownZH(currentAccount.value.weekly_reset_at)
+  }
+  return '等待下一次额度同步'
+})
+
+const syncHint = computed(() => {
+  if (currentAccount.value?.last_quota_update) {
+    return `同步 ${formatSyncTimeLine(currentAccount.value.last_quota_update)}`
+  }
+  return '尚未同步'
+})
+
+async function refreshSnapshot(force = false) {
+  if (refreshBusy.value) {
     return
   }
+  refreshBusy.value = true
   try {
-    await APIInfo.refreshAccountQuota(acc.id)
-    await accountStore.fetchAccounts()
+    await systemStore.fetchCurrentAuth()
+    await accountStore.fetchAccounts(force)
+    const acc = currentAccount.value
+    if (acc?.id) {
+      await APIInfo.refreshAccountQuota(acc.id)
+      await accountStore.fetchAccounts(true)
+    }
   } catch {
-    /* 静默失败，避免小窗弹错 */
+    // 工具栏保持安静，避免把小窗变成错误弹窗中心
+  } finally {
+    refreshBusy.value = false
   }
 }
 
@@ -62,17 +182,17 @@ const pollTick = () => {
   if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
     return
   }
-  void refreshOne()
+  void refreshSnapshot()
 }
 
 const onVisibilityChange = () => {
   if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-    void refreshOne()
+    void refreshSnapshot()
   }
 }
 
 onMounted(() => {
-  void refreshOne()
+  void refreshSnapshot(true)
   pollTimer = setInterval(pollTick, 60_000)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
@@ -87,58 +207,122 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="flex items-center gap-2.5 px-3 py-1 h-full min-h-0 bg-white/92 dark:bg-[#1c1c1e]/92 backdrop-blur-md border border-black/[0.08] dark:border-white/[0.08] rounded-2xl shadow-lg select-none"
-  >
-    <div class="relative w-10 h-10 shrink-0">
-      <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
-        <circle
-          cx="18"
-          cy="18"
-          :r="ringRadius"
-          fill="none"
-          stroke="currentColor"
-          class="text-black/[0.08] dark:text-white/10"
-          stroke-width="3"
-        />
-        <circle
-          cx="18"
-          cy="18"
-          :r="ringRadius"
-          fill="none"
-          stroke="currentColor"
-          class="text-ios-blue transition-[stroke-dashoffset] duration-300"
-          stroke-width="3"
-          stroke-linecap="round"
-          :stroke-dasharray="`${ringCirc}`"
-          :stroke-dashoffset="dashOffset"
-        />
-      </svg>
-      <span
-        class="absolute inset-0 flex items-center justify-center text-[9px] font-bold tabular-nums text-ios-text dark:text-ios-textDark"
-      >
-        {{ Math.round(ringPct) }}%
-      </span>
-    </div>
-    <div class="flex-1 min-w-0 overflow-hidden pr-1">
-      <div class="text-[10px] uppercase tracking-wide text-ios-textSecondary dark:text-ios-textSecondaryDark">
-        日剩余 · 当前会话
-      </div>
-      <div class="text-[13px] font-semibold font-mono leading-tight">{{ dailyPct }}</div>
-      <div
-        class="text-[11px] text-ios-textSecondary dark:text-ios-textSecondaryDark truncate mt-0.5"
-        :title="currentAccount?.email || systemStore.currentAuthEmail || ''"
-      >
-        {{ emailShort }}
-      </div>
-    </div>
-    <button
-      type="button"
-      class="no-drag-region p-2 rounded-xl bg-ios-blue/12 text-ios-blue hover:bg-ios-blue/20 transition-colors"
-      title="打开主窗口"
-      @click="openMain"
+  <div class="h-full w-full px-3 py-2.5">
+    <div
+      class="group relative flex h-full items-stretch overflow-hidden rounded-[26px] border shadow-[0_14px_40px_rgba(15,23,42,0.22)] backdrop-blur-2xl select-none"
+      :class="toneClasses.shell"
     >
-      <Maximize2 class="w-4 h-4" stroke-width="2.2" />
-    </button>
+      <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.55),transparent_52%)] opacity-80" />
+      <div class="pointer-events-none absolute inset-y-0 right-[-18px] w-[120px] rounded-full blur-3xl" :class="toneClasses.orb" />
+      <div class="pointer-events-none absolute inset-x-6 bottom-0 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+
+      <div class="relative flex w-full items-center gap-4 px-4 py-3">
+        <div class="min-w-0 flex-[1.1]">
+          <div class="flex items-center gap-2">
+            <span class="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:bg-white/10 dark:text-ios-textSecondaryDark">
+              当前账号
+            </span>
+            <span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.16em]" :class="toneClasses.badge">
+              {{ planLabel }}
+            </span>
+          </div>
+          <div class="mt-2.5 truncate text-[16px] font-black tracking-[0.01em] text-ios-text dark:text-ios-textDark">
+            {{ currentTitle }}
+          </div>
+          <div
+            class="mt-1 truncate text-[11px] font-medium text-ios-textSecondary dark:text-ios-textSecondaryDark"
+            :title="currentAccount?.email || systemStore.currentAuthEmail || ''"
+          >
+            {{ currentEmail }}
+          </div>
+          <div class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-semibold text-ios-textSecondary dark:bg-white/10 dark:text-ios-textSecondaryDark">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            {{ syncHint }}
+          </div>
+        </div>
+
+        <div class="min-w-0 flex-[0.92]">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.26em] text-ios-textSecondary/80 dark:text-ios-textSecondaryDark/80">
+            剩余额度
+          </div>
+          <div class="mt-1 flex items-end gap-2">
+            <div class="truncate text-[34px] font-black leading-none tracking-[-0.05em]" :class="toneClasses.value">
+              {{ quotaHeadline }}
+            </div>
+          </div>
+          <div class="mt-1.5 text-[11px] font-medium text-ios-textSecondary dark:text-ios-textSecondaryDark">
+            {{ quotaCaption }}
+          </div>
+          <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.08]">
+            <div
+              class="h-full rounded-full bg-gradient-to-r transition-all duration-500 ease-out"
+              :class="toneClasses.bar"
+              :style="{ width: `${dailyPercent}%` }"
+            />
+          </div>
+        </div>
+
+        <div class="flex min-w-[132px] flex-col gap-2">
+          <div class="rounded-[18px] border border-white/20 bg-white/35 px-3 py-2 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
+            <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:text-ios-textSecondaryDark">
+              <span>日</span>
+              <span>{{ dailyPctText }}</span>
+            </div>
+            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.08]">
+              <div
+                class="h-full rounded-full bg-gradient-to-r transition-all duration-500 ease-out"
+                :class="toneClasses.bar"
+                :style="{ width: `${dailyPercent}%` }"
+              />
+            </div>
+          </div>
+
+          <div class="rounded-[18px] border border-white/20 bg-white/35 px-3 py-2 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
+            <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-ios-textSecondary dark:text-ios-textSecondaryDark">
+              <span>周</span>
+              <span>{{ weeklyPctText }}</span>
+            </div>
+            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.08]">
+              <div
+                class="h-full rounded-full bg-gradient-to-r transition-all duration-500 ease-out"
+                :class="toneClasses.bar"
+                :style="{ width: `${weeklyPercent}%` }"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="flex min-w-[108px] flex-col items-end justify-between self-stretch">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="no-drag-region inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/25 bg-white/45 text-ios-text shadow-sm backdrop-blur-xl transition hover:bg-white/70 dark:border-white/10 dark:bg-black/25 dark:text-ios-textDark dark:hover:bg-black/35"
+              title="刷新当前账号额度"
+              @click="refreshSnapshot(true)"
+            >
+              <Loader2 v-if="refreshBusy" class="h-4 w-4 ios-spinner" stroke-width="2.2" />
+              <RefreshCcw v-else class="h-4 w-4" stroke-width="2.2" />
+            </button>
+            <button
+              type="button"
+              class="no-drag-region inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/25 bg-[#0F172A]/90 text-white shadow-sm backdrop-blur-xl transition hover:bg-[#111c2f] dark:border-white/10"
+              title="打开主窗口"
+              @click="openMain"
+            >
+              <Maximize2 class="h-4 w-4" stroke-width="2.2" />
+            </button>
+          </div>
+
+          <div class="w-full rounded-[18px] border border-white/20 bg-white/35 px-3 py-2 text-right backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
+            <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-ios-textSecondary dark:text-ios-textSecondaryDark">
+              下次刷新
+            </div>
+            <div class="mt-1 text-[11px] font-semibold leading-snug text-ios-text dark:text-ios-textDark">
+              {{ nextResetHint }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

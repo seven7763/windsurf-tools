@@ -158,6 +158,12 @@ func (a *App) ImportByJWT(items []JWTItem) []ImportResult {
 		acc.Token = item.JWT
 		acc.Remark = item.Remark
 		a.enrichAccountInfoLite(acc)
+		// 尝试通过 RegisterUser 获取 API Key，使账号后续可通过 GetJWTByAPIKey 持续刷新凭证
+		if acc.WindsurfAPIKey == "" && acc.Token != "" {
+			if reg, err := a.windsurfSvc.RegisterUser(acc.Token); err == nil && reg != nil && reg.APIKey != "" {
+				acc.WindsurfAPIKey = reg.APIKey
+			}
+		}
 		if item.Remark == "" {
 			acc.Nickname = strings.Split(acc.Email, "@")[0]
 		}

@@ -6,7 +6,6 @@ type Settings struct {
 	ProxyURL                   string `json:"proxy_url"`
 	WindsurfPath               string `json:"windsurf_path"`
 	ConcurrentLimit            int    `json:"concurrent_limit"`
-	SeamlessSwitch             bool   `json:"seamless_switch"`
 	AutoRefreshTokens          bool   `json:"auto_refresh_tokens"`
 	AutoRefreshQuotas          bool   `json:"auto_refresh_quotas"`
 	QuotaRefreshPolicy         string `json:"quota_refresh_policy"`          // hybrid | interval_* | us_calendar | local_calendar | custom
@@ -33,17 +32,24 @@ type Settings struct {
 	MitmTunMode bool `json:"mitm_tun_mode"`
 
 	// ── MITM 代理 ──
-	// MitmProxyEnabled 启用 MITM 反向代理（hosts劫持 + JWT替换 + 多号轮换）
+	// MitmProxyEnabled 仅对无界面服务 / daemon 生效：启动后自动拉起 MITM 代理（hosts 劫持 + JWT 替换 + 多号轮换）
 	MitmProxyEnabled bool `json:"mitm_proxy_enabled"`
-	// MitmProxyPort MITM 代理监听端口（默认 443）
-	MitmProxyPort int `json:"mitm_proxy_port"`
+	// MitmDebugDump 开启后，MITM 拦截 GetChatMessage 时将请求/响应的 protobuf 字段树写入 proto_dumps/ 目录
+	MitmDebugDump bool `json:"mitm_debug_dump"`
+
+	// ── OpenAI 中转 ──
+	// OpenAIRelayEnabled 启用本地 OpenAI 兼容 API 中转服务器
+	OpenAIRelayEnabled bool `json:"openai_relay_enabled"`
+	// OpenAIRelayPort 中转服务器监听端口（默认 8787）
+	OpenAIRelayPort int `json:"openai_relay_port"`
+	// OpenAIRelaySecret Bearer token 鉴权密钥（空则不鉴权）
+	OpenAIRelaySecret string `json:"openai_relay_secret"`
 }
 
 func DefaultSettings() Settings {
 	return Settings{
 		ProxyEnabled:               false,
 		ConcurrentLimit:            5,
-		SeamlessSwitch:             false,
 		AutoRefreshTokens:          false,
 		AutoRefreshQuotas:          false,
 		QuotaRefreshPolicy:         "hybrid",
@@ -58,6 +64,9 @@ func DefaultSettings() Settings {
 		MitmOnly:                   false,
 		MitmTunMode:                false,
 		MitmProxyEnabled:           false,
-		MitmProxyPort:              443,
+		MitmDebugDump:              false,
+		OpenAIRelayEnabled:         false,
+		OpenAIRelayPort:            8787,
+		OpenAIRelaySecret:          "",
 	}
 }

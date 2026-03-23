@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAccountStore } from '../stores/useAccountStore'
 import { useSettingsStore } from '../stores/useSettingsStore'
 import { useSystemStore } from '../stores/useSystemStore'
+import { useMainViewStore } from '../stores/useMainViewStore'
+import { useMitmStatusStore } from '../stores/useMitmStatusStore'
 import ImportModal from '../components/accounts/ImportModal.vue'
 import {
   Plus,
@@ -18,6 +20,7 @@ import {
   X,
   CalendarDays,
   Clock,
+  Monitor,
 } from 'lucide-vue-next'
 import { APIInfo } from '../api/wails'
 import { getPlanTone } from '../utils/account'
@@ -40,12 +43,26 @@ import {
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const systemStore = useSystemStore()
+const mainView = useMainViewStore()
+const mitmStore = useMitmStatusStore()
 const showImportModal = ref(false)
 const quotaRefreshingId = ref<string | null>(null)
 
 const switchPlanFilter = ref('all')
 
 const mitmOnly = computed(() => settingsStore.settings?.mitm_only === true)
+const isolatedWindowBlockedByMitm = computed(
+  () => Boolean(mitmStore.status?.running || mitmStore.status?.hosts_mapped),
+)
+const isolatedWindowBlockReason = computed(() => {
+  if (mitmStore.status?.running) {
+    return '当前 MITM 多号轮换正在运行。独立开窗需要固定账号，不能和全局代理轮转同时启用。'
+  }
+  if (mitmStore.status?.hosts_mapped) {
+    return '当前系统 hosts 仍在接管 Windsurf 域名。请先恢复 MITM 环境，再使用独立开窗。'
+  }
+  return '以独立 profile 打开新的 IDE 窗口，并绑定到这个账号'
+})
 
 const poolPlanCounts = computed<Partial<Record<SwitchPlanTone, number>>>(() => {
   const m: Partial<Record<SwitchPlanTone, number>> = {}
@@ -67,6 +84,18 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => mitmOnly.value,
+  (enabled) => {
+    if (enabled) {
+      mitmStore.startPolling()
+      return
+    }
+    mitmStore.stopPolling()
+  },
+  { immediate: true },
+)
+
 const planSectionOrder = ['pro', 'max', 'team', 'enterprise', 'trial', 'free', 'unknown'] as const
 
 const planSectionLabels: Record<string, string> = {
@@ -81,12 +110,17 @@ const planSectionLabels: Record<string, string> = {
 
 const searchQuery = ref('')
 const activeTab = ref<string>('all')
+type AccountQuickFilter = 'all' | 'online' | 'switchable' | 'depleted' | 'runtime_exhausted' | 'low' | 'pending' | 'credential_gap'
+const quickFilter = ref<AccountQuickFilter>('all')
 
 const filteredAccounts = computed(() => {
   let list = accountStore.accounts
   
   if (activeTab.value !== 'all') {
     list = list.filter(a => getPlanTone(a.plan_name) === activeTab.value)
+  }
+  if (quickFilter.value !== 'all') {
+    list = list.filter((a) => matchesQuickFilter(a, quickFilter.value))
   }
 
   const q = searchQuery.value.trim().toLowerCase()
@@ -161,8 +195,48 @@ const isCurrentOnline = (acc: models.Account) => {
 
 const switchPoolLabel = computed(() => formatSwitchPlanFilterSummary(switchPlanFilter.value))
 
+const emptyStateTitle = computed(() => {
+  const email = (systemStore.currentAuthEmail || '').trim()
+  return email ? '已检测到 Windsurf 登录，导入后即可接管' : '先在 Windsurf 登录，或直接导入你的账号'
+})
+
+const emptyStateBody = computed(() => {
+  const email = (systemStore.currentAuthEmail || '').trim()
+  if (email) {
+    return `当前本机会话是 ${email}。把它导入账号池后，本软件才能同步额度、自动切号，或继续接入 MITM 轮换。`
+  }
+  return '当前还没检测到本机 Windsurf 登录态。你可以先去官方客户端登录一次，再回来刷新检测；也可以直接用邮箱密码、Refresh Token、API Key 或 JWT 导入你的账号。'
+})
+
+const handleRefreshCurrentSession = async () => {
+  try {
+    await systemStore.fetchCurrentAuth()
+    if (systemStore.currentAuthEmail?.trim()) {
+      showToast(`已检测到当前会话：${systemStore.currentAuthEmail}`, 'success')
+    } else {
+      showToast('还没检测到 Windsurf 登录，请先在官方客户端完成一次登录后再刷新。', 'info')
+    }
+  } catch (e: unknown) {
+    showToast(`刷新当前会话失败: ${String(e)}`, 'error')
+  }
+}
+
+const goSettings = () => {
+  mainView.activeTab = 'Settings'
+}
+
 onMounted(() => {
   void accountStore.fetchAccounts()
+  void mitmStore.fetchStatus()
+  if (mitmOnly.value) {
+    mitmStore.startPolling()
+  }
+})
+
+onUnmounted(() => {
+  if (mitmOnly.value) {
+    mitmStore.stopPolling()
+  }
 })
 
 const persistSwitchPool = async () => {
@@ -202,6 +276,24 @@ const handleAutoNext = async (id: string) => {
     showToast(`已切换到：${email}\n范围：${switchPoolLabel.value}\n\n${switchFollowUpHint()}`, 'success', 7000)
   } catch (e: unknown) {
     showToast(`自动切号失败: ${String(e)}`, 'error')
+  }
+}
+
+const handleOpenIsolatedWindow = async (id: string, email: string) => {
+  if (isolatedWindowBlockedByMitm.value) {
+    showToast(isolatedWindowBlockReason.value, 'warning')
+    return
+  }
+  try {
+    const profileDir = await accountStore.openAccountInIsolatedWindow(id)
+    showToast(`已为 ${email} 打开独立 IDE 窗口。\n独立 profile：${profileDir}`, 'success', 7000)
+  } catch (e: unknown) {
+    const message = String(e)
+    if (message.includes('已经在运行')) {
+      showToast(message, 'warning', 6000)
+      return
+    }
+    showToast(`打开独立窗口失败: ${message}`, 'error')
   }
 }
 
@@ -363,9 +455,29 @@ const isInSwitchPool = (acc: models.Account) => {
   return filter.split(',').includes(tone)
 }
 
+const findMitmPoolRuntime = (acc: models.Account) => {
+  const key = String(acc.windsurf_api_key || '').trim()
+  if (!key) {
+    return null
+  }
+  return (
+    mitmStore.status?.pool_status?.find((item) => {
+      const short = String(item.key_short || '').trim().replace(/\.\.\.$/, '')
+      return short && key.startsWith(short)
+    }) ?? null
+  )
+}
+
 type CardStateTone = 'online' | 'ready' | 'warning' | 'danger' | 'pending' | 'muted'
 
 const getCardStateMeta = (acc: models.Account): { tone: CardStateTone; label: string } => {
+  const mitmRuntime = findMitmPoolRuntime(acc)
+  if (mitmRuntime?.runtime_exhausted) {
+    return {
+      tone: 'danger',
+      label: isCurrentOnline(acc) ? '当前在线 · 运行时见底' : '运行时见底',
+    }
+  }
   if (isCurrentOnline(acc)) {
     return {
       tone: 'online',
@@ -456,6 +568,64 @@ const getCardStatePanelClass = (tone: CardStateTone) => {
   }
 }
 
+const hasApiKey = (acc: models.Account) => Boolean(String(acc.windsurf_api_key || '').trim())
+const hasJWT = (acc: models.Account) => Boolean(String(acc.token || '').trim())
+
+const matchesQuickFilter = (acc: models.Account, filter: AccountQuickFilter) => {
+  const meta = getCardStateMeta(acc)
+  switch (filter) {
+    case 'online':
+      return meta.tone === 'online'
+    case 'switchable':
+      return meta.tone === 'online' || meta.tone === 'ready'
+    case 'depleted':
+      return meta.tone === 'danger'
+    case 'runtime_exhausted':
+      return Boolean(findMitmPoolRuntime(acc)?.runtime_exhausted)
+    case 'low':
+      return meta.tone === 'warning'
+    case 'pending':
+      return meta.tone === 'pending'
+    case 'credential_gap':
+      return mitmOnly.value ? !hasApiKey(acc) : hasApiKey(acc) && !hasJWT(acc)
+    case 'all':
+    default:
+      return true
+  }
+}
+
+const quickFilterOptions = computed<
+  Array<{ key: AccountQuickFilter; label: string; count: number }>
+>(() => {
+  const options: Array<{ key: AccountQuickFilter; label: string }> = [
+    { key: 'all', label: '全部' },
+    { key: 'online', label: '当前在线' },
+    { key: 'switchable', label: '可切换' },
+    { key: 'depleted', label: '额度见底' },
+    { key: 'runtime_exhausted', label: '运行时见底' },
+    { key: 'low', label: '额度偏低' },
+    { key: 'pending', label: '待同步' },
+    { key: 'credential_gap', label: mitmOnly.value ? '待补 API Key' : 'JWT 待补' },
+  ]
+  return options.map((option) => ({
+    ...option,
+    count:
+      option.key === 'all'
+        ? accountStore.accounts.length
+        : accountStore.accounts.filter((acc) => matchesQuickFilter(acc, option.key)).length,
+  }))
+})
+
+const hasListFilters = computed(
+  () => activeTab.value !== 'all' || quickFilter.value !== 'all' || Boolean(searchQuery.value.trim()),
+)
+
+const clearListFilters = () => {
+  activeTab.value = 'all'
+  quickFilter.value = 'all'
+  searchQuery.value = ''
+}
+
 const getPlanAccentClass = (acc: models.Account) => {
   switch (getPlanTone(acc.plan_name)) {
     case 'pro':
@@ -484,10 +654,10 @@ const getPlanAccentClass = (acc: models.Account) => {
         <h1 class="text-[32px] font-bold tracking-tight">{{ mitmOnly ? '号池 (MITM)' : '账号池' }}</h1>
         <p class="text-[13px] text-ios-textSecondary dark:text-ios-textSecondaryDark mt-1">
           <template v-if="mitmOnly">
-            维护 API Key / 凭证供 MITM 代理轮换。
+            维护 API Key / 凭证供 MITM 代理轮换；运行时见底会优先按代理现场状态标记，不再只看静态额度百分比。
           </template>
           <template v-else>
-            一眼查看账号、到期时间和额度状态。
+            一眼查看账号、到期时间和额度状态；切号与独立窗口都会自动避开已用尽账号。
           </template>
         </p>
       </div>
@@ -537,6 +707,29 @@ const getPlanAccentClass = (acc: models.Account) => {
       </div>
     </div>
 
+    <div
+      v-if="!mitmOnly"
+      class="mb-5 rounded-[18px] border border-violet-500/15 bg-violet-500/[0.07] px-4 py-3.5 text-[13px] font-medium leading-relaxed text-violet-900 dark:text-violet-200 shrink-0"
+    >
+      <div class="flex items-start gap-3">
+        <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-violet-600 shadow-sm dark:bg-black/20 dark:text-violet-300">
+          <Monitor class="h-4 w-4" stroke-width="2.4" />
+        </div>
+        <div class="min-w-0">
+            <div class="text-[13px] font-bold">一个 Windsurf IDE 窗口对应一个账号</div>
+            <div class="mt-1 text-[12px] text-violet-800/80 dark:text-violet-200/80">
+              点击卡片右上角的“独立开窗”，会用独立 <code>user-data-dir</code> 和独立登录态拉起新的 Windsurf 窗口，不会挤掉你当前正在用的 IDE 会话。
+            </div>
+            <div
+              v-if="isolatedWindowBlockedByMitm"
+              class="mt-2 text-[12px] font-semibold text-amber-700 dark:text-amber-300"
+            >
+              当前 MITM 环境仍在生效。要保证“一窗一号”，请先停止 MITM 并恢复环境。
+            </div>
+          </div>
+        </div>
+      </div>
+
     <!-- 顶部计划类型导航条 -->
     <div class="flex items-center gap-2 mb-6 overflow-x-auto no-scrollbar shrink-0 pb-1">
       <button
@@ -553,6 +746,36 @@ const getPlanAccentClass = (acc: models.Account) => {
           :class="activeTab === tab.key ? 'bg-white/20 dark:bg-black/10' : 'bg-black/5 dark:bg-white/10'"
         >
           {{ tab.count }}
+        </span>
+      </button>
+    </div>
+
+    <div
+      v-if="accountStore.accounts.length > 0"
+      class="mb-5 flex flex-wrap items-center gap-2 shrink-0"
+    >
+      <button
+        v-for="item in quickFilterOptions"
+        :key="item.key"
+        type="button"
+        class="no-drag-region inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-bold transition-colors"
+        :class="
+          quickFilter === item.key
+            ? 'bg-ios-blue text-white shadow-sm'
+            : 'bg-black/[0.04] text-ios-textSecondary hover:bg-black/[0.08] dark:bg-white/[0.05] dark:text-ios-textSecondaryDark dark:hover:bg-white/[0.1]'
+        "
+        @click="quickFilter = item.key"
+      >
+        <span>{{ item.label }}</span>
+        <span
+          class="rounded-full px-2 py-0.5 text-[10px] font-black"
+          :class="
+            quickFilter === item.key
+              ? 'bg-white/20 text-white'
+              : 'bg-black/[0.05] text-ios-textSecondary dark:bg-white/[0.08] dark:text-ios-textSecondaryDark'
+          "
+        >
+          {{ item.count }}
         </span>
       </button>
     </div>
@@ -606,16 +829,53 @@ const getPlanAccentClass = (acc: models.Account) => {
       <div class="w-24 h-24 mb-6 rounded-3xl bg-black/5 flex items-center justify-center">
         <Users class="w-12 h-12 opacity-50" />
       </div>
-      <p class="text-[17px] font-medium">账号簿为空</p>
+      <p class="text-[18px] font-bold text-ios-text dark:text-ios-textDark">{{ emptyStateTitle }}</p>
+      <p class="mt-3 max-w-[560px] text-center text-[13px] leading-relaxed text-ios-textSecondary dark:text-ios-textSecondaryDark">
+        {{ emptyStateBody }}
+      </p>
+      <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          class="no-drag-region inline-flex items-center gap-2 rounded-full bg-ios-blue px-4 py-2.5 text-[13px] font-bold text-white transition-colors hover:bg-blue-500 ios-btn"
+          @click="showImportModal = true"
+        >
+          <Plus class="h-4 w-4" stroke-width="2.4" />
+          导入账号
+        </button>
+        <button
+          v-if="systemStore.currentAuthEmail?.trim()"
+          type="button"
+          class="no-drag-region inline-flex items-center gap-2 rounded-full border border-black/[0.06] bg-white/80 px-4 py-2.5 text-[13px] font-bold text-gray-700 transition-colors hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200 dark:hover:bg-white/[0.08] ios-btn"
+          @click="goSettings"
+        >
+          <ChevronRight class="h-4 w-4" stroke-width="2.4" />
+          打开设置
+        </button>
+        <button
+          v-else
+          type="button"
+          class="no-drag-region inline-flex items-center gap-2 rounded-full border border-black/[0.06] bg-white/80 px-4 py-2.5 text-[13px] font-bold text-gray-700 transition-colors hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200 dark:hover:bg-white/[0.08] ios-btn"
+          @click="handleRefreshCurrentSession"
+        >
+          <RefreshCcw class="h-4 w-4" stroke-width="2.4" />
+          刷新当前会话
+        </button>
+      </div>
     </div>
 
     <div
-      v-else-if="accountStore.accounts.length > 0 && searchQuery.trim() && displayAccounts.length === 0"
+      v-else-if="accountStore.accounts.length > 0 && displayAccounts.length === 0"
       class="flex flex-col items-center justify-center flex-1 py-16 text-ios-textSecondary"
     >
       <Search class="w-12 h-12 opacity-50 mb-4" />
-      <p class="text-[17px] font-medium">未找到匹配的账号</p>
-      <button class="mt-3 text-[14px] font-semibold text-ios-blue ios-btn" @click="searchQuery = ''">清除搜索</button>
+      <p class="text-[17px] font-medium">{{ searchQuery.trim() ? '未找到匹配的账号' : '当前筛选下没有账号' }}</p>
+      <button
+        v-if="hasListFilters"
+        class="mt-3 text-[14px] font-semibold text-ios-blue ios-btn"
+        @click="clearListFilters"
+      >
+        清除筛选
+      </button>
     </div>
 
     <div v-else class="pb-10 min-h-0">
@@ -653,6 +913,16 @@ const getPlanAccentClass = (acc: models.Account) => {
                   @click="handleSwitch(acc.id)"
                 >
                   <Power class="h-[15px] w-[15px]" stroke-width="2.5" />
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-[30px] shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-bold text-violet-600 shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-black/40 ios-btn"
+                  :disabled="isolatedWindowBlockedByMitm"
+                  :title="isolatedWindowBlockReason"
+                  @click="handleOpenIsolatedWindow(acc.id, acc.email)"
+                >
+                  <Monitor class="h-[15px] w-[15px]" stroke-width="2.5" />
+                  <span>独立开窗</span>
                 </button>
                 <button
                   type="button"

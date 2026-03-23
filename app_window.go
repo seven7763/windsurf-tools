@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	toolbarW = 432
+	toolbarW = 540
 	// 该窗口保留系统标题栏，需预留非客户区高度，否则内容会被裁成截图里的白条。
-	toolbarH = 116
+	toolbarH = 154
 )
 
 // ApplyToolbarLayout 切换为桌面工具栏：小窗口、置顶、靠右下角（与微软桌面组件类似）。
@@ -20,8 +20,8 @@ func (a *App) ApplyToolbarLayout(show bool) error {
 	if !show {
 		return a.RestoreMainWindowLayout()
 	}
-	runtime.WindowSetMinSize(a.ctx, 360, 108)
-	runtime.WindowSetMaxSize(a.ctx, 900, 180)
+	runtime.WindowSetMinSize(a.ctx, 460, 140)
+	runtime.WindowSetMaxSize(a.ctx, 960, 220)
 	runtime.WindowSetSize(a.ctx, toolbarW, toolbarH)
 	runtime.WindowSetAlwaysOnTop(a.ctx, true)
 	screens, err := runtime.ScreenGetAll(a.ctx)

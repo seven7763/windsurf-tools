@@ -39,7 +39,6 @@ export function createDefaultSettings(): models.Settings {
     proxy_url: '',
     windsurf_path: '',
     concurrent_limit: 5,
-    seamless_switch: false,
     auto_refresh_tokens: false,
     auto_refresh_quotas: false,
     quota_refresh_policy: 'hybrid',
@@ -54,7 +53,9 @@ export function createDefaultSettings(): models.Settings {
     mitm_only: false,
     mitm_tun_mode: false,
     mitm_proxy_enabled: false,
-    mitm_proxy_port: 443,
+    openai_relay_enabled: false,
+    openai_relay_port: 8787,
+    openai_relay_secret: '',
   })
 }
 
@@ -69,7 +70,6 @@ export function normalizeSettings(raw: unknown): models.Settings {
     proxy_url: String(s.proxy_url ?? ''),
     windsurf_path: String(s.windsurf_path ?? ''),
     concurrent_limit: Math.max(1, Number(s.concurrent_limit) || 5),
-    seamless_switch: Boolean(s.seamless_switch),
     auto_refresh_tokens: Boolean(s.auto_refresh_tokens),
     auto_refresh_quotas: Boolean(s.auto_refresh_quotas),
     quota_refresh_policy: String(s.quota_refresh_policy || 'hybrid'),
@@ -88,10 +88,9 @@ export function normalizeSettings(raw: unknown): models.Settings {
     mitm_only: 'mitm_only' in s ? Boolean(s.mitm_only) : base.mitm_only,
     mitm_tun_mode: 'mitm_tun_mode' in s ? Boolean(s.mitm_tun_mode) : base.mitm_tun_mode,
     mitm_proxy_enabled: 'mitm_proxy_enabled' in s ? Boolean(s.mitm_proxy_enabled) : base.mitm_proxy_enabled,
-    mitm_proxy_port:
-      'mitm_proxy_port' in s && Number(s.mitm_proxy_port) > 0
-        ? Math.round(Number(s.mitm_proxy_port))
-        : base.mitm_proxy_port,
+    openai_relay_enabled: 'openai_relay_enabled' in s ? Boolean(s.openai_relay_enabled) : base.openai_relay_enabled,
+    openai_relay_port: Math.max(1, Math.min(65535, Number(s.openai_relay_port) || 8787)),
+    openai_relay_secret: String(s.openai_relay_secret ?? ''),
   })
 }
 
@@ -158,7 +157,6 @@ export type SettingsForm = {
   proxy_url: string
   windsurf_path: string
   concurrent_limit: number
-  seamless_switch: boolean
   auto_refresh_tokens: boolean
   auto_refresh_quotas: boolean
   quota_refresh_policy: string
@@ -181,6 +179,12 @@ export type SettingsForm = {
   mitm_only: boolean
   /** 在 MITM 面板展示 TUN/全局代理说明（本应用不内置 TUN） */
   mitm_tun_mode: boolean
+  /** 无界面服务/daemon 启动时自动拉起 MITM */
+  mitm_proxy_enabled: boolean
+  /** OpenAI 兼容中转服务器 */
+  openai_relay_enabled: boolean
+  openai_relay_port: number
+  openai_relay_secret: string
 }
 
 export function settingsToForm(s: models.Settings): SettingsForm {
@@ -189,7 +193,6 @@ export function settingsToForm(s: models.Settings): SettingsForm {
     proxy_url: s.proxy_url || '',
     windsurf_path: s.windsurf_path || '',
     concurrent_limit: s.concurrent_limit || 5,
-    seamless_switch: s.seamless_switch,
     auto_refresh_tokens: s.auto_refresh_tokens,
     auto_refresh_quotas: s.auto_refresh_quotas,
     quota_refresh_policy: s.quota_refresh_policy || 'hybrid',
@@ -203,21 +206,19 @@ export function settingsToForm(s: models.Settings): SettingsForm {
     silent_start: s.silent_start === true,
     mitm_only: s.mitm_only === true,
     mitm_tun_mode: s.mitm_tun_mode === true,
+    mitm_proxy_enabled: s.mitm_proxy_enabled === true,
+    openai_relay_enabled: s.openai_relay_enabled === true,
+    openai_relay_port: Math.max(1, Number(s.openai_relay_port) || 8787),
+    openai_relay_secret: String(s.openai_relay_secret ?? ''),
   }
 }
 
-export function formToSettings(
-  form: SettingsForm,
-  patchApplied: boolean,
-  base?: models.Settings | null,
-): models.Settings {
-  const b = base ?? createDefaultSettings()
+export function formToSettings(form: SettingsForm): models.Settings {
   return new models.Settings({
     proxy_enabled: form.proxy_enabled,
     proxy_url: form.proxy_url.trim(),
     windsurf_path: form.windsurf_path.trim(),
     concurrent_limit: Math.max(1, Math.round(form.concurrent_limit) || 5),
-    seamless_switch: patchApplied,
     auto_refresh_tokens: form.auto_refresh_tokens,
     auto_refresh_quotas: form.auto_refresh_quotas,
     quota_refresh_policy: form.quota_refresh_policy || 'hybrid',
@@ -231,8 +232,10 @@ export function formToSettings(
     silent_start: form.silent_start,
     mitm_only: form.mitm_only,
     mitm_tun_mode: form.mitm_tun_mode,
-    mitm_proxy_enabled: b.mitm_proxy_enabled,
-    mitm_proxy_port: b.mitm_proxy_port,
+    mitm_proxy_enabled: form.mitm_proxy_enabled,
+    openai_relay_enabled: form.openai_relay_enabled,
+    openai_relay_port: Math.max(1, Math.min(65535, Math.round(form.openai_relay_port) || 8787)),
+    openai_relay_secret: (form.openai_relay_secret ?? '').trim(),
   })
 }
 

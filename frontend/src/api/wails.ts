@@ -29,6 +29,7 @@ export const APIInfo = {
   addSingleAccount: AppHooks.AddSingleAccount,
 
   switchAccount: AppHooks.SwitchAccount,
+  openAccountInIsolatedWindow: AppHooks.OpenAccountInIsolatedWindow,
   autoSwitchToNext: AppHooks.AutoSwitchToNext,
   getCurrentWindsurfAuth: AppHooks.GetCurrentWindsurfAuth,
   getWindsurfAuthPath: AppHooks.GetWindsurfAuthPath,
@@ -36,6 +37,9 @@ export const APIInfo = {
   refreshAllTokens: AppHooks.RefreshAllTokens,
   refreshAllQuotas: AppHooks.RefreshAllQuotas,
   refreshAccountQuota: AppHooks.RefreshAccountQuota,
+  getBackgroundServiceStatus: AppHooks.GetBackgroundServiceStatus,
+  getDesktopRuntimeStatus: AppHooks.GetDesktopRuntimeStatus,
+  controlBackgroundService: AppHooks.ControlBackgroundService,
 
   getSettings: AppHooks.GetSettings,
   updateSettings: AppHooks.UpdateSettings,
@@ -55,4 +59,12 @@ export const APIInfo = {
   setupMitmHosts: AppHooks.SetupMitmHosts,
   teardownMitm: AppHooks.TeardownMitm,
   getMitmCAPath: AppHooks.GetMitmCAPath,
+
+  // OpenAI 中转
+  startOpenAIRelay: AppHooks.StartOpenAIRelay,
+  stopOpenAIRelay: AppHooks.StopOpenAIRelay,
+  getOpenAIRelayStatus: AppHooks.GetOpenAIRelayStatus,
+
+  // MITM debug dump
+  toggleMitmDebugDump: AppHooks.ToggleMitmDebugDump,
 };

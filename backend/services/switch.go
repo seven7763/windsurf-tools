@@ -76,6 +76,14 @@ func (s *SwitchService) SwitchAccount(token, email string) error {
 	if err != nil {
 		return fmt.Errorf("获取auth路径失败: %w", err)
 	}
+	return WriteAuthFile(authPath, token, email)
+}
+
+// WriteAuthFile writes a Windsurf auth payload to the given path.
+func WriteAuthFile(authPath, token, email string) error {
+	if strings.TrimSpace(authPath) == "" {
+		return fmt.Errorf("auth 路径为空")
+	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(authPath)
