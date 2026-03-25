@@ -421,7 +421,7 @@ const fetchRelayStatus = async () => {
   try {
     const st = await APIInfo.getOpenAIRelayStatus()
     relayRunning.value = Boolean(st.running)
-    relayAddress.value = String(st.address || '')
+    relayAddress.value = String(st.url || '')
   } catch { /* ignore */ }
 }
 
@@ -470,6 +470,7 @@ onUnmounted(() => {
   if (autoSaveDebounceTimer) {
     clearTimeout(autoSaveDebounceTimer)
     autoSaveDebounceTimer = null
+    void persistLocalSettings()
   }
   if (saveStateResetTimer) {
     clearTimeout(saveStateResetTimer)
@@ -1223,6 +1224,32 @@ onUnmounted(() => {
                   class="no-drag-region w-14 text-center bg-transparent border-none text-[15px] font-bold text-gray-900 dark:text-gray-100 outline-none p-0"
                 />
               </div>
+            </div>
+
+            <div class="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.04] dark:border-white/[0.04]">
+              <div class="flex-1 pr-4">
+                <div class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1">导入并发数</div>
+                <div class="text-[13px] text-gray-500 dark:text-gray-400">
+                  批量导入账号时的最大并发数（1～20），值越大导入越快但更容易触发上游限流。
+                </div>
+              </div>
+              <div class="relative shrink-0 flex items-center bg-gray-100 dark:bg-black/20 rounded-[12px] px-3 py-1.5 focus-within:ring-2 focus-within:ring-ios-blue/30 border border-black/5 dark:border-white/5">
+                <input
+                  v-model.number="local.import_concurrency"
+                  type="number" min="1" max="20"
+                  class="no-drag-region w-14 text-center bg-transparent border-none text-[15px] font-bold text-gray-900 dark:text-gray-100 outline-none p-0"
+                />
+              </div>
+            </div>
+
+            <div class="p-5 sm:p-6 flex items-center justify-between gap-4 border-b border-black/[0.04] dark:border-white/[0.04]">
+              <div class="flex-1 pr-4">
+                <div class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1">调试日志</div>
+                <div class="text-[13px] text-gray-500 dark:text-gray-400">
+                  开启后将切号、代理、额度判定等关键操作写入 debug.log 文件（位于配置目录）。
+                </div>
+              </div>
+              <IToggle v-model="local.debug_log" />
             </div>
 
             <div class="p-5 sm:p-6 bg-gray-50/30 dark:bg-black/10">

@@ -56,6 +56,8 @@ export function createDefaultSettings(): models.Settings {
     openai_relay_enabled: false,
     openai_relay_port: 8787,
     openai_relay_secret: '',
+    debug_log: false,
+    import_concurrency: 3,
   })
 }
 
@@ -91,6 +93,8 @@ export function normalizeSettings(raw: unknown): models.Settings {
     openai_relay_enabled: 'openai_relay_enabled' in s ? Boolean(s.openai_relay_enabled) : base.openai_relay_enabled,
     openai_relay_port: Math.max(1, Math.min(65535, Number(s.openai_relay_port) || 8787)),
     openai_relay_secret: String(s.openai_relay_secret ?? ''),
+    debug_log: 'debug_log' in s ? Boolean(s.debug_log) : false,
+    import_concurrency: Math.max(1, Math.min(20, Number(s.import_concurrency) || 3)),
   })
 }
 
@@ -185,6 +189,10 @@ export type SettingsForm = {
   openai_relay_enabled: boolean
   openai_relay_port: number
   openai_relay_secret: string
+  /** 调试日志：开启后将切号/代理/额度判定写入 debug.log */
+  debug_log: boolean
+  /** 导入并发数 1～20 */
+  import_concurrency: number
 }
 
 export function settingsToForm(s: models.Settings): SettingsForm {
@@ -210,6 +218,8 @@ export function settingsToForm(s: models.Settings): SettingsForm {
     openai_relay_enabled: s.openai_relay_enabled === true,
     openai_relay_port: Math.max(1, Number(s.openai_relay_port) || 8787),
     openai_relay_secret: String(s.openai_relay_secret ?? ''),
+    debug_log: (s as any).debug_log === true,
+    import_concurrency: Math.max(1, Math.min(20, Number((s as any).import_concurrency) || 3)),
   }
 }
 
@@ -236,6 +246,8 @@ export function formToSettings(form: SettingsForm): models.Settings {
     openai_relay_enabled: form.openai_relay_enabled,
     openai_relay_port: Math.max(1, Math.min(65535, Math.round(form.openai_relay_port) || 8787)),
     openai_relay_secret: (form.openai_relay_secret ?? '').trim(),
+    debug_log: form.debug_log,
+    import_concurrency: Math.max(1, Math.min(20, Math.round(form.import_concurrency) || 3)),
   })
 }
 

@@ -460,9 +460,9 @@ const dashOffset = computed(() => circumference * (1 - healthRate.value / 100))
         </div>
       </div>
       <div class="ios-glass bg-white/60 dark:bg-[#1C1C1E]/60 rounded-[24px] p-5 border border-black/5 dark:border-white/5 flex flex-col justify-between">
-        <div class="text-[32px] font-extrabold text-gray-900 dark:text-gray-100 leading-none mb-3 tracking-tight">{{ lowQuotaCount }}</div>
+        <div class="text-[32px] font-extrabold leading-none mb-3 tracking-tight" :class="lowQuotaCount > 0 ? 'text-amber-500' : 'text-gray-900 dark:text-gray-100'">{{ lowQuotaCount }}</div>
         <div class="flex items-center text-[12px] text-gray-500 dark:text-gray-400 font-medium">
-          <AlertTriangle class="w-4 h-4 mr-1.5 opacity-70" stroke-width="2.5" /> 额度偏低
+          <AlertTriangle class="w-4 h-4 mr-1.5 text-amber-500 opacity-80" stroke-width="2.5" /> 额度偏低
         </div>
       </div>
       <div class="ios-glass bg-white/60 dark:bg-[#1C1C1E]/60 rounded-[24px] p-5 border border-black/5 dark:border-white/5 flex flex-col justify-between">
@@ -518,11 +518,11 @@ const dashOffset = computed(() => circumference * (1 - healthRate.value / 100))
               <span class="text-[11px] text-gray-500 mt-1">正常</span>
             </div>
             <div class="flex flex-col">
-              <span class="text-[18px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{{ lowQuotaCount }}</span>
+              <span class="text-[18px] font-bold leading-tight" :class="lowQuotaCount > 0 ? 'text-amber-500' : 'text-gray-900 dark:text-gray-100'">{{ lowQuotaCount }}</span>
               <span class="text-[11px] text-gray-500 mt-1">偏低</span>
             </div>
             <div class="flex flex-col">
-              <span class="text-[18px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{{ depletedCount }}</span>
+              <span class="text-[18px] font-bold leading-tight" :class="depletedCount > 0 ? 'text-rose-500' : 'text-gray-900 dark:text-gray-100'">{{ depletedCount }}</span>
               <span class="text-[11px] text-gray-500 mt-1">见底</span>
             </div>
           </div>

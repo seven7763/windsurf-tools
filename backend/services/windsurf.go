@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"windsurf-tools-wails/backend/utils"
@@ -103,12 +104,12 @@ type planStatusEnvelope struct {
 type planStatusPayload struct {
 	AvailablePromptCredits      int                    `json:"availablePromptCredits"`
 	AvailableFlowCredits        int                    `json:"availableFlowCredits"`
-	UsedPromptCredits           int                    `json:"usedPromptCredits"`
-	UsedUsageCredits            int                    `json:"usedUsageCredits"`
+	UsedPromptCredits           *int                   `json:"usedPromptCredits"`
+	UsedUsageCredits            *int                   `json:"usedUsageCredits"`
 	DailyQuotaRemainingPercent  *float64               `json:"dailyQuotaRemainingPercent"`
 	WeeklyQuotaRemainingPercent *float64               `json:"weeklyQuotaRemainingPercent"`
-	DailyQuotaResetAtUnix       int64                  `json:"dailyQuotaResetAtUnix"`
-	WeeklyQuotaResetAtUnix      int64                  `json:"weeklyQuotaResetAtUnix"`
+	DailyQuotaResetAtUnix       json.RawMessage        `json:"dailyQuotaResetAtUnix"`
+	WeeklyQuotaResetAtUnix      json.RawMessage        `json:"weeklyQuotaResetAtUnix"`
 	PlanEnd                     json.RawMessage        `json:"planEnd"`
 	PlanStart                   json.RawMessage        `json:"planStart"`
 	SubscriptionPeriodEnd       json.RawMessage        `json:"subscriptionPeriodEnd"`
@@ -127,11 +128,17 @@ func (s *WindsurfService) LoginWithEmail(email, password string) (*FirebaseSignI
 		"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=%s",
 		FirebaseAPIKey,
 	)
-	body := fmt.Sprintf(
-		`{"returnSecureToken":true,"email":"%s","password":"%s","clientType":"CLIENT_TYPE_WEB"}`,
-		email, password,
-	)
-	resp, err := s.client.Post(apiURL, "application/json", strings.NewReader(body))
+	payload := map[string]interface{}{
+		"returnSecureToken": true,
+		"email":             email,
+		"password":          password,
+		"clientType":        "CLIENT_TYPE_WEB",
+	}
+	bodyJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("编码登录请求失败: %w", err)
+	}
+	resp, err := s.client.Post(apiURL, "application/json", bytes.NewReader(bodyJSON))
 	if err != nil {
 		return nil, fmt.Errorf("登录请求失败(网络): %w", err)
 	}
@@ -277,7 +284,7 @@ func (s *WindsurfService) GetPlanStatus(token string) (map[string]interface{}, e
 // ── gRPC 直连获取 JWT (sk-ws-* API Key) ──
 
 func (s *WindsurfService) GetJWTByAPIKey(apiKey string) (string, error) {
-	connectURL := fmt.Sprintf("https://%s/exa.auth_pb.AuthService/GetUserJwt", GRPCUpstreamIP)
+	connectURL := fmt.Sprintf("https://%s/exa.auth_pb.AuthService/GetUserJwt", ResolveUpstreamIP())
 	metadata := buildAPIKeyMetadata(apiKey)
 
 	// Connect 协议：F1 嵌套 metadata 子消息，无 gRPC 5 字节帧头
@@ -353,6 +360,22 @@ func (s *WindsurfService) GetPlanStatusJSON(token string) (*AccountProfile, erro
 		return nil, fmt.Errorf("GetPlanStatus(JSON)失败(%d): %s", resp.StatusCode, truncate(string(respBody), 200))
 	}
 
+	utils.DLog("[API] GetPlanStatusJSON raw(%d bytes): %s", len(respBody), truncate(string(respBody), 500))
+	// 诊断：dump planStatus 下所有 JSON key（排除巨大的 planInfo）
+	{
+		var rawMap map[string]map[string]json.RawMessage
+		if json.Unmarshal(respBody, &rawMap) == nil {
+			if ps, ok := rawMap["planStatus"]; ok {
+				for k, v := range ps {
+					if k == "planInfo" {
+						utils.DLog("[diag] planStatus.%s = <planInfo %d bytes>", k, len(v))
+					} else {
+						utils.DLog("[diag] planStatus.%s = %s", k, truncate(string(v), 120))
+					}
+				}
+			}
+		}
+	}
 	var payload planStatusEnvelope
 	if err := json.Unmarshal(respBody, &payload); err != nil {
 		return nil, fmt.Errorf("解析 GetPlanStatus(JSON) 响应失败: %w", err)
@@ -363,8 +386,8 @@ func (s *WindsurfService) GetPlanStatusJSON(token string) (*AccountProfile, erro
 		len(bytes.TrimSpace(payload.PlanStatus.PlanEnd)) == 0 &&
 		payload.PlanStatus.AvailablePromptCredits == 0 &&
 		payload.PlanStatus.AvailableFlowCredits == 0 &&
-		payload.PlanStatus.UsedPromptCredits == 0 &&
-		payload.PlanStatus.UsedUsageCredits == 0 &&
+		payload.PlanStatus.UsedPromptCredits == nil &&
+		payload.PlanStatus.UsedUsageCredits == nil &&
 		len(payload.PlanStatus.TopUpStatus) == 0 {
 		if err := json.Unmarshal(respBody, &payload.PlanStatus); err != nil {
 			return nil, fmt.Errorf("解析 GetPlanStatus(JSON) 平铺响应失败: %w", err)
@@ -374,7 +397,7 @@ func (s *WindsurfService) GetPlanStatusJSON(token string) (*AccountProfile, erro
 }
 
 func (s *WindsurfService) GetUserStatus(apiKey string) (*AccountProfile, error) {
-	grpcURL := fmt.Sprintf("https://%s/exa.seat_management_pb.SeatManagementService/GetUserStatus", GRPCUpstreamIP)
+	grpcURL := fmt.Sprintf("https://%s/exa.seat_management_pb.SeatManagementService/GetUserStatus", ResolveUpstreamIP())
 	metadata := buildAPIKeyMetadata(apiKey)
 	envelope := buildGRPCEnvelope(metadata)
 
@@ -393,6 +416,7 @@ func (s *WindsurfService) GetUserStatus(apiKey string) (*AccountProfile, error) 
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+	utils.DLog("[API] GetUserStatus resp: HTTP %d, body=%d bytes, grpc-status=%s", resp.StatusCode, len(respBody), resp.Header.Get("grpc-status"))
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("GetUserStatus失败(HTTP %d, grpc-status=%s, msg=%s): %s",
 			resp.StatusCode, resp.Header.Get("grpc-status"), resp.Header.Get("grpc-message"), truncate(string(respBody), 200))
@@ -400,12 +424,13 @@ func (s *WindsurfService) GetUserStatus(apiKey string) (*AccountProfile, error) 
 
 	payload, err := unwrapGRPCPayload(respBody)
 	if err != nil {
-		return nil, fmt.Errorf("解析 GetUserStatus 响应失败: %w", err)
+		return nil, fmt.Errorf("解析 GetUserStatus 响应失败: %w (rawLen=%d)", err, len(respBody))
 	}
+	utils.DLog("[API] GetUserStatus payload: %d bytes", len(payload))
 
 	profile := parseUserStatusPayload(payload)
 	if profile == nil {
-		return nil, fmt.Errorf("GetUserStatus 响应无法解析")
+		return nil, fmt.Errorf("GetUserStatus 响应无法解析 (payloadLen=%d)", len(payload))
 	}
 	return profile, nil
 }
@@ -544,18 +569,33 @@ func encodeLength(n int) []byte {
 }
 
 func parsePlanStatusPayload(ps planStatusPayload) *AccountProfile {
+	utils.DLog("[parse] planStatus: name=%s billing=%s prompt=%d flow=%d usedPrompt=%v usedUsage=%v daily=%v weekly=%v hasUsageField=%v",
+		ps.PlanInfo.PlanName, ps.PlanInfo.BillingStrategy,
+		ps.AvailablePromptCredits, ps.AvailableFlowCredits,
+		ps.UsedPromptCredits, ps.UsedUsageCredits,
+		ps.DailyQuotaRemainingPercent, ps.WeeklyQuotaRemainingPercent,
+		ps.UsedPromptCredits != nil || ps.UsedUsageCredits != nil)
 	profile := &AccountProfile{
 		PlanName:              normalizePlanName(ps.PlanInfo.PlanName),
 		BillingStrategy:       ps.PlanInfo.BillingStrategy,
 		DailyQuotaRemaining:   ps.DailyQuotaRemainingPercent,
 		WeeklyQuotaRemaining:  ps.WeeklyQuotaRemainingPercent,
-		DailyResetAt:          unixToRFC3339(ps.DailyQuotaResetAtUnix),
-		WeeklyResetAt:         unixToRFC3339(ps.WeeklyQuotaResetAtUnix),
+		DailyResetAt:          unixToRFC3339(rawMsgToInt64(ps.DailyQuotaResetAtUnix)),
+		WeeklyResetAt:         unixToRFC3339(rawMsgToInt64(ps.WeeklyQuotaResetAtUnix)),
 		SubscriptionExpiresAt: pickSubscriptionExpiresFromPlanStatus(ps),
 	}
 
 	total := creditsToUnits(ps.AvailablePromptCredits) + creditsToUnits(ps.AvailableFlowCredits)
-	used := creditsToUnits(ps.UsedPromptCredits) + creditsToUnits(ps.UsedUsageCredits)
+	usedPrompt := 0
+	if ps.UsedPromptCredits != nil {
+		usedPrompt = *ps.UsedPromptCredits
+	}
+	usedUsage := 0
+	if ps.UsedUsageCredits != nil {
+		usedUsage = *ps.UsedUsageCredits
+	}
+	hasUsageData := ps.UsedPromptCredits != nil || ps.UsedUsageCredits != nil
+	used := creditsToUnits(usedPrompt) + creditsToUnits(usedUsage)
 	profile.TotalCredits = total
 	profile.UsedCredits = used
 	if total > 0 || used > 0 {
@@ -568,12 +608,20 @@ func parsePlanStatusPayload(ps planStatusPayload) *AccountProfile {
 	if profile.PlanName == "" {
 		profile.PlanName = "Free"
 	}
-	// API 有时不传日/周百分比，但可用额度已为 0 且已有消耗：补成 0%% 以便上层判定用尽并切号
-	if profile.DailyQuotaRemaining == nil && profile.WeeklyQuotaRemaining == nil {
-		if total == 0 && used > 0 {
+	// API 不传日/周百分比时，仅在 credits 系统确实追踪了用量（used>0）时才合成百分比
+	// Pro/Teams 的 Cascade 用量不走 credits，used 始终为 0，此时不合成，避免永远显示 100%
+	if profile.DailyQuotaRemaining == nil && profile.WeeklyQuotaRemaining == nil && hasUsageData && used > 0 {
+		if total == 0 {
 			z := 0.0
 			profile.DailyQuotaRemaining = &z
 			profile.WeeklyQuotaRemaining = &z
+		} else {
+			pct := float64(total-used) / float64(total) * 100
+			if pct < 0 {
+				pct = 0
+			}
+			profile.DailyQuotaRemaining = &pct
+			profile.WeeklyQuotaRemaining = &pct
 		}
 	}
 	return profile
@@ -605,13 +653,55 @@ func parseUserStatusPayload(payload []byte) *AccountProfile {
 			planInfoFields := decodeProtoMessage(planInfo)
 			profile.PlanName = normalizePlanName(planInfoFields.firstString(2))
 		}
-		if plan.hasVarint(14) {
-			v := float64(plan.firstVarint(14))
+		// field 8/9: credits（与 JSON 路径的 AvailablePromptCredits/FlowCredits 对应）
+		if plan.hasVarint(8) || plan.hasVarint(9) {
+			total := creditsToUnits(int(plan.firstVarint(8))) + creditsToUnits(int(plan.firstVarint(9)))
+			profile.TotalCredits = total
+			profile.RemainingCredits = total
+		}
+		hasF14 := plan.hasVarint(14)
+		hasF15 := plan.hasVarint(15)
+		f14Val := plan.firstVarint(14)
+		f15Val := plan.firstVarint(15)
+		f17Val := plan.firstVarint(17)
+		f18Val := plan.firstVarint(18)
+		utils.DLog("[parseUserStatus] %s: hasF14=%v(%d) hasF15=%v(%d) F17=%d F18=%d",
+			profile.Email, hasF14, f14Val, hasF15, f15Val, f17Val, f18Val)
+		if hasF14 {
+			v := float64(f14Val)
 			profile.DailyQuotaRemaining = &v
 		}
-		if plan.hasVarint(15) {
-			v := float64(plan.firstVarint(15))
+		if hasF15 {
+			v := float64(f15Val)
 			profile.WeeklyQuotaRemaining = &v
+		}
+		// ★ 服务端在配额用尽时会省略 F14/F15 字段（不是返回0）。
+		// 规则：
+		//   1) 仅一侧存在 → 缺失的另一侧 = 0%（用尽）
+		//   2) 两侧都不存在但有 resetAt → 也视为 0%（全部用尽）
+		//   3) 两侧都不存在且无 resetAt → 积分制套餐，尝试从 credits 合成
+		hasResetAt := f17Val > 0 || f18Val > 0
+		if hasF14 && !hasF15 {
+			zero := 0.0
+			profile.WeeklyQuotaRemaining = &zero
+		}
+		if hasF15 && !hasF14 {
+			zero := 0.0
+			profile.DailyQuotaRemaining = &zero
+		}
+		if !hasF14 && !hasF15 && hasResetAt {
+			// 有 resetAt 说明是日/周配额制套餐（Pro/Trial），两者都被省略 = 全部用尽
+			zero := 0.0
+			profile.DailyQuotaRemaining = &zero
+			profile.WeeklyQuotaRemaining = &zero
+		}
+		if profile.DailyQuotaRemaining == nil && profile.WeeklyQuotaRemaining == nil && profile.TotalCredits > 0 && profile.UsedCredits > 0 {
+			pct := float64(profile.TotalCredits-profile.UsedCredits) / float64(profile.TotalCredits) * 100
+			if pct < 0 {
+				pct = 0
+			}
+			profile.DailyQuotaRemaining = &pct
+			profile.WeeklyQuotaRemaining = &pct
 		}
 		if planEnd := subscriptionEndFromPlanProto(plan); planEnd != "" {
 			profile.SubscriptionExpiresAt = planEnd
@@ -623,7 +713,7 @@ func parseUserStatusPayload(payload []byte) *AccountProfile {
 	if profile.SubscriptionExpiresAt == "" {
 		profile.SubscriptionExpiresAt = parseProtoTimestamp(user.firstBytes(34))
 	}
-	if profile.PlanName == "" {
+	if profile.PlanName == "" && profile.TierLabel != "" {
 		profile.PlanName = normalizePlanName(profile.TierLabel)
 	}
 	return profile
@@ -846,13 +936,13 @@ func tierLabel(tier int) string {
 	case 1:
 		return "Basic"
 	case 2:
-		return "Enterprise"
+		return "" // tier=2 是通用注册用户标记，不代表具体套餐（Free/Pro/Enterprise 都可能是 2）
 	case 3:
 		return "Teams"
 	case 9:
 		return "Trial"
 	default:
-		return "Unknown"
+		return ""
 	}
 }
 
@@ -905,6 +995,19 @@ func normalizeQuotedString(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.Trim(value, "\"")
 	return value
+}
+
+// rawMsgToInt64 从 json.RawMessage 提取 int64，兼容字符串 "123" 和裸数字 123 两种 JSON 格式。
+func rawMsgToInt64(raw json.RawMessage) int64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	s := strings.Trim(string(raw), "\" \t\n")
+	if s == "" || s == "null" {
+		return 0
+	}
+	v, _ := strconv.ParseInt(s, 10, 64)
+	return v
 }
 
 func unixToRFC3339(unix int64) string {

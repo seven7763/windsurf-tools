@@ -227,6 +227,8 @@ export namespace models {
 	    mitm_tun_mode: boolean;
 	    mitm_proxy_enabled: boolean;
 	    mitm_debug_dump: boolean;
+	    debug_log: boolean;
+	    import_concurrency: number;
 	    openai_relay_enabled: boolean;
 	    openai_relay_port: number;
 	    openai_relay_secret: string;
@@ -256,6 +258,8 @@ export namespace models {
 	        this.mitm_tun_mode = source["mitm_tun_mode"];
 	        this.mitm_proxy_enabled = source["mitm_proxy_enabled"];
 	        this.mitm_debug_dump = source["mitm_debug_dump"];
+	        this.debug_log = source["debug_log"];
+	        this.import_concurrency = source["import_concurrency"];
 	        this.openai_relay_enabled = source["openai_relay_enabled"];
 	        this.openai_relay_port = source["openai_relay_port"];
 	        this.openai_relay_secret = source["openai_relay_secret"];

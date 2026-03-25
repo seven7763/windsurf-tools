@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-export type ToastKind = 'success' | 'error' | 'info'
+export type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
 export interface ToastItem {
   id: number
@@ -12,10 +12,13 @@ export const toastQueue = ref<ToastItem[]>([])
 
 let toastSeq = 0
 
+const MAX_TOAST_QUEUE = 6
+
 /** 非阻塞提示；支持 message 内换行（white-space: pre-line） */
 export function showToast(message: string, kind: ToastKind = 'info', durationMs = 4800): void {
   const id = ++toastSeq
-  toastQueue.value = [...toastQueue.value, { id, message, kind }]
+  const next = [...toastQueue.value, { id, message, kind }]
+  toastQueue.value = next.length > MAX_TOAST_QUEUE ? next.slice(-MAX_TOAST_QUEUE) : next
   window.setTimeout(() => {
     toastQueue.value = toastQueue.value.filter((t) => t.id !== id)
   }, durationMs)
@@ -50,6 +53,10 @@ export function confirmDialog(
   message: string,
   options?: { confirmText?: string; cancelText?: string; destructive?: boolean },
 ): Promise<boolean> {
+  const prev = confirmState.value.resolve
+  if (prev) {
+    prev(false)
+  }
   return new Promise((resolve) => {
     confirmState.value = {
       visible: true,

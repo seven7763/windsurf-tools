@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kardianos/service v1.2.2
 	github.com/wailsapp/wails/v2 v2.11.0
+	golang.org/x/net v0.43.0
 	golang.org/x/sys v0.35.0
 )
 
@@ -44,7 +45,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
-	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 )
 

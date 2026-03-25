@@ -18,9 +18,13 @@ export function ControlBackgroundService(arg1:string):Promise<void>;
 
 export function DeleteAccount(arg1:string):Promise<void>;
 
+export function DeleteAccountsByGroup(arg1:string):Promise<number>;
+
 export function DeleteExpiredAccounts():Promise<number>;
 
 export function DeleteFreePlanAccounts():Promise<number>;
+
+export function ExportAccountsByGroup(arg1:string):Promise<string>;
 
 export function FindWindsurfPath():Promise<string>;
 
@@ -55,8 +59,6 @@ export function ImportByEmailPassword(arg1:Array<main.EmailPasswordItem>):Promis
 export function ImportByJWT(arg1:Array<main.JWTItem>):Promise<Array<main.ImportResult>>;
 
 export function ImportByRefreshToken(arg1:Array<main.TokenItem>):Promise<Array<main.ImportResult>>;
-
-export function OpenAccountInIsolatedWindow(arg1:string):Promise<string>;
 
 export function RefreshAccountQuota(arg1:string):Promise<void>;
 

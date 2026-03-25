@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ISegmented from '../ios/ISegmented.vue'
 import { APIInfo } from '../../api/wails'
 import { useAccountStore } from '../../stores/useAccountStore'
@@ -34,6 +34,12 @@ const currentMode = ref('password')
 const inputText = ref('')
 const isLoading = ref(false)
 const results = ref<main.ImportResult[]>([])
+
+watch(() => props.isOpen, (open: boolean) => {
+  if (!open) {
+    results.value = []
+  }
+})
 
 const modeMetaMap = {
   password: {

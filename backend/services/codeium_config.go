@@ -3,8 +3,10 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -54,7 +56,27 @@ func injectCodeiumConfigWithHomeDir(homeDir, apiKey string) error {
 	if err != nil {
 		return fmt.Errorf("序列化 codeium config: %w", err)
 	}
-	return os.WriteFile(configPath, data, 0644)
+	return robustWriteFile(configPath, data)
+}
+
+// robustWriteFile 兼容管理员 Windsurf 锁定文件：直写 → 临时文件+rename → PowerShell。
+func robustWriteFile(filePath string, data []byte) error {
+	if err := os.WriteFile(filePath, data, 0644); err == nil {
+		return nil
+	} else {
+		log.Printf("[写入] 直写 %s 失败(%v)，尝试备选方案", filepath.Base(filePath), err)
+	}
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err == nil {
+		if err := os.Rename(tmpPath, filePath); err == nil {
+			return nil
+		}
+		_ = os.Remove(tmpPath)
+	}
+	if runtime.GOOS == "windows" {
+		return writeFileViaPowerShell(filePath, data)
+	}
+	return fmt.Errorf("写入 %s 失败（所有方式均失败）", filepath.Base(filePath))
 }
 
 // RestoreCodeiumConfig 恢复 ~/.codeium/config.json

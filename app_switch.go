@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"windsurf-tools-wails/backend/models"
 	"windsurf-tools-wails/backend/services"
@@ -20,18 +20,25 @@ func (a *App) SwitchAccount(id string) error {
 	if err != nil {
 		return err
 	}
+	utils.DLog("[切号] SwitchAccount: id=%s email=%s plan=%s daily=%s weekly=%s", acc.ID, acc.Email, acc.PlanName, acc.DailyRemaining, acc.WeeklyRemaining)
 	prepared, err := a.prepareAccountForUsage(acc)
 	if err != nil {
+		utils.DLog("[切号] prepareAccountForUsage 失败: %v", err)
 		return err
 	}
 	if err := a.switchSvc.SwitchAccount(prepared.Token, prepared.Email); err != nil {
+		utils.DLog("[切号] SwitchAccount 写auth失败: %v", err)
 		return err
 	}
-	// ★ 同步 MITM 代理当前号
+	// ★ 同步本地 codeium config.json（API Key），否则 Windsurf 重读 auth 时仍用旧 key
 	if prepared.WindsurfAPIKey != "" {
+		if err := services.InjectCodeiumConfig(prepared.WindsurfAPIKey); err != nil {
+			utils.DLog("[切号] 同步 codeium config 失败: %v", err)
+		}
 		a.mitmProxy.SwitchToKey(prepared.WindsurfAPIKey)
 	}
-	a.applyPostWindsurfSwitch()
+	utils.DLog("[切号] SwitchAccount 成功: %s", prepared.Email)
+	go a.applyPostWindsurfSwitch()
 	return nil
 }
 
@@ -39,6 +46,7 @@ func (a *App) SwitchAccount(id string) error {
 func (a *App) AutoSwitchToNext(currentID string, planFilter string) (string, error) {
 	accounts := a.store.GetAllAccounts()
 	candidates := orderedSwitchCandidates(accounts, currentID, planFilter)
+	utils.DLog("[切号] AutoSwitchToNext: currentID=%s filter=%s 号池=%d 候选=%d", currentID[:min(8, len(currentID))], planFilter, len(accounts), len(candidates))
 	if len(candidates) == 0 {
 		f := strings.TrimSpace(strings.ToLower(planFilter))
 		if f != "" && f != "all" {
@@ -47,22 +55,41 @@ func (a *App) AutoSwitchToNext(currentID string, planFilter string) (string, err
 		return "", fmt.Errorf("没有仍有剩余额度的可切换账号（号池可能均已用尽或未同步额度）")
 	}
 
+	// ★ 预热：并行刷新 top N 候选的 JWT + 额度，确保切号目标数据新鲜
+	a.prewarmCandidates(candidates, 3)
+
+	// 预热已将最新凭证+额度写入 store，重读避免 prepareAccountForUsage 重复调用 API
+	freshAccounts := a.store.GetAllAccounts()
+	freshMap := make(map[string]models.Account, len(freshAccounts))
+	for _, fa := range freshAccounts {
+		freshMap[fa.ID] = fa
+	}
+
 	var lastErr error
 	for _, acc := range candidates {
+		if fresh, ok := freshMap[acc.ID]; ok {
+			acc = fresh
+		}
 		prepared, err := a.prepareAccountForUsage(acc)
 		if err != nil {
+			utils.DLog("[切号] AutoSwitch 跳过 %s: %v", acc.Email, err)
 			lastErr = err
 			continue
 		}
 		if err := a.switchSvc.SwitchAccount(prepared.Token, prepared.Email); err != nil {
+			utils.DLog("[切号] AutoSwitch 写入auth失败 %s: %v", prepared.Email, err)
 			lastErr = err
 			continue
 		}
-		// ★ 同步 MITM 代理当前号
+		// ★ 同步本地 codeium config + MITM 代理
 		if prepared.WindsurfAPIKey != "" {
+			if err := services.InjectCodeiumConfig(prepared.WindsurfAPIKey); err != nil {
+				utils.DLog("[切号] 同步 codeium config 失败: %v", err)
+			}
 			a.mitmProxy.SwitchToKey(prepared.WindsurfAPIKey)
 		}
-		a.applyPostWindsurfSwitch()
+		utils.DLog("[切号] AutoSwitch 成功切换到 %s (plan=%s daily=%s weekly=%s)", prepared.Email, prepared.PlanName, prepared.DailyRemaining, prepared.WeeklyRemaining)
+		go a.applyPostWindsurfSwitch()
 		return prepared.Email, nil
 	}
 
@@ -72,63 +99,48 @@ func (a *App) AutoSwitchToNext(currentID string, planFilter string) (string, err
 	return "", fmt.Errorf("没有可切换的账号")
 }
 
+// prewarmCandidates 并行预热 top N 候选账号：刷新JWT + 实时查额度，将结果写入 store。
+func (a *App) prewarmCandidates(candidates []models.Account, maxN int) {
+	n := len(candidates)
+	if n > maxN {
+		n = maxN
+	}
+	if n == 0 {
+		return
+	}
+	utils.DLog("[切号] 预热 %d 个候选账号...", n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(acc models.Account) {
+			defer wg.Done()
+			copy := acc
+			a.syncAccountCredentials(&copy)
+			if a.enrichAccountQuotaOnly(&copy) {
+				copy.LastQuotaUpdate = time.Now().Format(time.RFC3339)
+			}
+			_ = a.store.UpdateAccount(copy)
+			if utils.AccountQuotaExhausted(&copy) {
+				utils.DLog("[切号] 预热: %s 额度已耗尽 (daily=%s weekly=%s)", copy.Email, copy.DailyRemaining, copy.WeeklyRemaining)
+			} else {
+				utils.DLog("[切号] 预热: %s 额度OK (daily=%s weekly=%s)", copy.Email, copy.DailyRemaining, copy.WeeklyRemaining)
+			}
+		}(candidates[i])
+	}
+	wg.Wait()
+}
+
 func (a *App) GetCurrentWindsurfAuth() (*services.WindsurfAuthJSON, error) {
 	return a.switchSvc.GetCurrentAuth()
-}
-
-func (a *App) OpenAccountInIsolatedWindow(id string) (string, error) {
-	if err := isolatedWindowMitmConflict(a.mitmProxy != nil && a.mitmProxy.Status().Running, services.IsHostsMapped(services.TargetDomain)); err != nil {
-		return "", err
-	}
-	acc, err := a.store.GetAccount(id)
-	if err != nil {
-		return "", err
-	}
-	prepared, err := a.prepareAccountForUsage(acc)
-	if err != nil {
-		return "", err
-	}
-	profile := services.BuildIDEProfilePaths(a.store.DataDir(), prepared.ID, prepared.Email)
-	if err := services.PrepareIsolatedIDEProfile(profile); err != nil {
-		return "", err
-	}
-	if err := services.WriteIDEProfileMetadata(profile, prepared.ID, prepared.Email); err != nil {
-		return "", err
-	}
-	running, err := services.IsIDEProfileRunning(profile)
-	if err != nil {
-		return "", err
-	}
-	if running {
-		return filepath.Clean(profile.UserDataDir), fmt.Errorf("该账号的独立窗口已经在运行，请直接切回现有窗口；若需要重新拉起，请先关闭当前独立窗口")
-	}
-	if err := services.WriteAuthFile(profile.AuthPath, prepared.Token, prepared.Email); err != nil {
-		return "", err
-	}
-	if prepared.WindsurfAPIKey != "" {
-		_ = services.InjectCodeiumConfigAtHome(profile.HomeDir, prepared.WindsurfAPIKey)
-	}
-	if err := services.LaunchWindsurfWithProfile(a.store.GetSettings().WindsurfPath, profile); err != nil {
-		return "", err
-	}
-	return filepath.Clean(profile.UserDataDir), nil
-}
-
-func isolatedWindowMitmConflict(proxyRunning, hostsMapped bool) error {
-	if !proxyRunning && !hostsMapped {
-		return nil
-	}
-	if proxyRunning {
-		return fmt.Errorf("独立开窗与当前 MITM 多号轮换冲突：代理正在接管 Windsurf 请求，无法保证“一窗一号”。请先停止 MITM 并恢复环境后再开独立窗口")
-	}
-	return fmt.Errorf("独立开窗与当前系统劫持环境冲突：hosts 仍在接管 Windsurf 域名，新的窗口会被拉进旧的代理链路。请先执行恢复环境后再开独立窗口")
 }
 
 // applyPostWindsurfSwitch 写入 auth 后：尝试协议刷新；若开启设置则重启 Windsurf（运行中 IDE 会缓存 JWT，仅改文件通常不会立即换账号）。
 func (a *App) applyPostWindsurfSwitch() {
 	settings := a.store.GetSettings()
+	utils.DLog("[切号] applyPostSwitch: TryOpenWindsurfRefreshURIs...")
 	a.switchSvc.TryOpenWindsurfRefreshURIs()
 	if !settings.RestartWindsurfAfterSwitch {
+		utils.DLog("[切号] applyPostSwitch: RestartWindsurfAfterSwitch=false, 跳过重启")
 		return
 	}
 	root := strings.TrimSpace(settings.WindsurfPath)
@@ -137,7 +149,10 @@ func (a *App) applyPostWindsurfSwitch() {
 			root = p
 		}
 	}
-	_ = a.patchSvc.RestartWindsurfFromInstall(root)
+	utils.DLog("[切号] applyPostSwitch: 重启 Windsurf (root=%s)", root)
+	if err := a.patchSvc.RestartWindsurfFromInstall(root); err != nil {
+		utils.DLog("[切号] applyPostSwitch: 重启失败: %v", err)
+	}
 }
 
 func (a *App) GetWindsurfAuthPath() (string, error) {
@@ -181,20 +196,51 @@ func accountEligibleForUsage(acc *models.Account, planFilter string, requireAPIK
 }
 
 func orderedSwitchCandidates(accounts []models.Account, currentID string, planFilter string) []models.Account {
-	out := make([]models.Account, 0, len(accounts))
+	var fresh, stale []models.Account
 	for _, acc := range accounts {
 		if acc.ID == currentID {
 			continue
 		}
-		if !accountEligibleForUsage(&acc, planFilter, false) {
+		if accountEligibleForUsage(&acc, planFilter, false) {
+			fresh = append(fresh, acc)
 			continue
 		}
-		out = append(out, acc)
+		// 额度数据过期的账号也纳入候选（额度可能已重置），预热阶段会刷新
+		if quotaDataIsStale(&acc) && hasSwitchCredentials(&acc) && utils.PlanFilterMatch(planFilter, acc.PlanName) {
+			status := strings.TrimSpace(strings.ToLower(acc.Status))
+			if status != "disabled" && status != "expired" {
+				stale = append(stale, acc)
+			}
+		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return switchCredentialPriority(out[i]) < switchCredentialPriority(out[j])
+	sort.SliceStable(fresh, func(i, j int) bool {
+		return switchCredentialPriority(fresh[i]) < switchCredentialPriority(fresh[j])
 	})
-	return out
+	sort.SliceStable(stale, func(i, j int) bool {
+		return switchCredentialPriority(stale[i]) < switchCredentialPriority(stale[j])
+	})
+	// 新鲜的优先，过期数据的排后面
+	return append(fresh, stale...)
+}
+
+// quotaDataIsStale 检查额度数据是否过期（超过重置周期），过期的「已耗尽」账号应参与预热重新检查。
+func quotaDataIsStale(acc *models.Account) bool {
+	if acc == nil {
+		return false
+	}
+	if !utils.AccountQuotaExhausted(acc) {
+		return false // 未耗尽的不算过期
+	}
+	raw := strings.TrimSpace(acc.LastQuotaUpdate)
+	if raw == "" {
+		return true // 从未同步过
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return true
+	}
+	// 额度数据超过 4 小时视为过期（日额度每天重置，4h 足以覆盖跨日场景）
+	return time.Since(t) > 4*time.Hour
 }
 
 func orderedMitmCandidates(accounts []models.Account, currentID string, planFilter string) []models.Account {
@@ -246,27 +292,41 @@ func pickNextMitmSwitchableAccount(accounts []models.Account, currentID string, 
 }
 
 func (a *App) prepareAccountForUsage(acc models.Account) (models.Account, error) {
+	utils.DLog("[切号] prepareAccount: %s status=%s hasKey=%v hasToken=%v hasRefresh=%v", acc.Email, acc.Status, acc.WindsurfAPIKey != "", acc.Token != "", acc.RefreshToken != "")
 	if !hasSwitchCredentials(&acc) {
 		return models.Account{}, fmt.Errorf("该账号没有可用凭证")
 	}
-	if !accountEligibleForUsage(&acc, "all", false) {
-		if utils.AccountQuotaExhausted(&acc) {
-			return models.Account{}, fmt.Errorf("该账号已无可用额度，已阻止继续使用")
-		}
-		return models.Account{}, fmt.Errorf("该账号当前不可用")
+	status := strings.TrimSpace(strings.ToLower(acc.Status))
+	if status == "disabled" || status == "expired" {
+		return models.Account{}, fmt.Errorf("该账号状态为 %s，已跳过", status)
 	}
+
+	// ★ 如果刚预热过（30 秒内），跳过重复 API 调用，直接用缓存数据校验
+	recentlyWarmed := false
+	if t, err := time.Parse(time.RFC3339, acc.LastQuotaUpdate); err == nil && time.Since(t) < 30*time.Second {
+		recentlyWarmed = true
+	}
+	utils.DLog("[切号] prepareAccount: recentlyWarmed=%v", recentlyWarmed)
+
 	before := acc
-	a.syncAccountCredentials(&acc)
-	a.enrichAccountQuotaOnly(&acc)
-	acc.LastQuotaUpdate = time.Now().Format(time.RFC3339)
+	if !recentlyWarmed {
+		a.syncAccountCredentials(&acc)
+		if a.enrichAccountQuotaOnly(&acc) {
+			acc.LastQuotaUpdate = time.Now().Format(time.RFC3339)
+		}
+	}
+
 	if strings.TrimSpace(acc.Token) == "" {
-		return models.Account{}, fmt.Errorf("该账号无法准备有效 Token")
+		utils.DLog("[切号] %s Token为空，凭证同步可能失败", acc.Email)
+		return models.Account{}, fmt.Errorf("该账号无法准备有效 Token（JWT/登录均失败）")
 	}
 	if utils.AccountQuotaExhausted(&acc) {
 		_ = a.store.UpdateAccount(acc)
 		a.syncMitmPoolKeys()
-		return models.Account{}, fmt.Errorf("该账号已无可用额度，已阻止继续使用")
+		utils.DLog("[切号] %s 实时额度已耗尽 (daily=%s weekly=%s)", acc.Email, acc.DailyRemaining, acc.WeeklyRemaining)
+		return models.Account{}, fmt.Errorf("该账号已无可用额度（日=%s 周=%s），已跳过", acc.DailyRemaining, acc.WeeklyRemaining)
 	}
+	utils.DLog("[切号] prepareAccount OK: %s (daily=%s weekly=%s tokenLen=%d)", acc.Email, acc.DailyRemaining, acc.WeeklyRemaining, len(acc.Token))
 	if acc != before {
 		_ = a.store.UpdateAccount(acc)
 	}
@@ -274,10 +334,24 @@ func (a *App) prepareAccountForUsage(acc models.Account) (models.Account, error)
 }
 
 func (a *App) rotateMitmToNextAvailable(currentID string, planFilter string) (models.Account, error) {
-	acc, err := pickNextMitmSwitchableAccount(a.store.GetAllAccounts(), currentID, planFilter)
-	if err != nil {
-		return models.Account{}, err
+	candidates := orderedMitmCandidates(a.store.GetAllAccounts(), currentID, planFilter)
+	utils.DLog("[切号] rotateMitm: currentID=%s filter=%s 候选=%d", currentID[:min(8, len(currentID))], planFilter, len(candidates))
+	if len(candidates) == 0 {
+		return models.Account{}, fmt.Errorf("无可用 MITM 候选账号")
 	}
+
+	// ★ 预热 top N 候选：刷新 JWT + 实时查额度，防止切到实际已耗尽的账号
+	a.prewarmCandidates(candidates, 2)
+
+	// 预热后重读 store，仅保留仍有额度的
+	freshCandidates := orderedMitmCandidates(a.store.GetAllAccounts(), currentID, planFilter)
+	utils.DLog("[切号] rotateMitm: 预热后候选=%d", len(freshCandidates))
+	if len(freshCandidates) == 0 {
+		return models.Account{}, fmt.Errorf("预热后无可用 MITM 候选账号（候选均已耗尽）")
+	}
+
+	acc := freshCandidates[0]
+	utils.DLog("[切号] rotateMitm: 切换到 %s (key=%s...)", acc.Email, acc.WindsurfAPIKey[:min(12, len(acc.WindsurfAPIKey))])
 	if !a.mitmProxy.SwitchToKey(acc.WindsurfAPIKey) {
 		return models.Account{}, fmt.Errorf("MITM 代理未找到目标 API Key")
 	}

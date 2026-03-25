@@ -68,9 +68,10 @@ const handleToggle = async (on: boolean) => {
 }
 
 const copyText = (text: string, label: string) => {
-  navigator.clipboard.writeText(text).then(() => {
-    showToast(`已复制${label}`, 'success')
-  })
+  navigator.clipboard.writeText(text).then(
+    () => showToast(`已复制${label}`, 'success'),
+    () => showToast(`复制${label}失败`, 'error'),
+  )
 }
 
 const curlCmd = computed(() => {

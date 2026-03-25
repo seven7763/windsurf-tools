@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"windsurf-tools-wails/backend/models"
 	"windsurf-tools-wails/backend/services"
+	"windsurf-tools-wails/backend/utils"
 )
 
 // ═══════════════════════════════════════
@@ -62,5 +63,12 @@ func (a *App) UpdateSettings(settings models.Settings) error {
 	}
 	a.restartQuotaHotPollIfNeeded()
 	a.syncMitmPoolKeys()
+	// 动态切换调试日志
+	if prev.DebugLog != settings.DebugLog {
+		utils.InitDebugLogger(a.store.DataDir(), settings.DebugLog)
+		if settings.DebugLog {
+			utils.DLog("[设置] 调试日志已开启")
+		}
+	}
 	return nil
 }

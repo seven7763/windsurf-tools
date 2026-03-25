@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"windsurf-tools-wails/backend/models"
 	"windsurf-tools-wails/backend/services"
+	"windsurf-tools-wails/backend/utils"
 )
 
 // ═══════════════════════════════════════
@@ -38,10 +40,84 @@ type JWTItem struct {
 	Remark string `json:"remark"`
 }
 
+// importConcurrency 返回导入并发数（钳位 1～20）
+func (a *App) importConcurrency() int {
+	c := a.store.GetSettings().ImportConcurrency
+	if c < 1 {
+		c = 3
+	}
+	if c > 20 {
+		c = 20
+	}
+	return c
+}
+
+// importResult 内部导入结果（携带准备好的 Account）
+type importSlot struct {
+	index  int
+	result ImportResult
+	acc    *models.Account // nil 表示失败
+}
+
+// runConcurrentImport 通用并发导入框架：对 items 并行执行 processFn，然后批量写入 store。
+func (a *App) runConcurrentImport(n int, processFn func(idx int) importSlot) []ImportResult {
+	defer a.syncMitmPoolKeys()
+
+	concurrency := a.importConcurrency()
+	utils.DLog("[导入] 开始导入 %d 条，并发=%d", n, concurrency)
+
+	slots := make([]importSlot, n)
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			slots[idx] = processFn(idx)
+		}(i)
+	}
+	wg.Wait()
+
+	// 收集成功的账号，批量写入 store（单次持久化）
+	var accs []models.Account
+	accIdxMap := make([]int, 0, n) // 记录 accs 对应的 slots 下标
+	for i, s := range slots {
+		if s.acc != nil {
+			accs = append(accs, *s.acc)
+			accIdxMap = append(accIdxMap, i)
+		}
+	}
+	if len(accs) > 0 {
+		errs := a.store.AddAccountsBatch(accs)
+		for j, err := range errs {
+			si := accIdxMap[j]
+			if err != nil {
+				slots[si].result.Success = false
+				slots[si].result.Error = err.Error()
+			}
+		}
+	}
+
+	results := make([]ImportResult, n)
+	ok, fail := 0, 0
+	for i, s := range slots {
+		results[i] = s.result
+		if s.result.Success {
+			ok++
+		} else {
+			fail++
+		}
+	}
+	utils.DLog("[导入] 完成: 成功=%d 失败=%d", ok, fail)
+	return results
+}
+
 func (a *App) ImportByEmailPassword(items []EmailPasswordItem) []ImportResult {
-	defer a.syncMitmPoolKeys() // 导入完成后同步号池
-	var results []ImportResult
-	for _, item := range items {
+	return a.runConcurrentImport(len(items), func(idx int) importSlot {
+		item := items[idx]
 		passwords := []string{item.Password}
 		if item.AltPassword != "" && item.AltPassword != item.Password {
 			passwords = append(passwords, item.AltPassword)
@@ -60,8 +136,7 @@ func (a *App) ImportByEmailPassword(items []EmailPasswordItem) []ImportResult {
 			}
 		}
 		if err != nil {
-			results = append(results, ImportResult{Email: item.Email, Success: false, Error: err.Error()})
-			continue
+			return importSlot{index: idx, result: ImportResult{Email: item.Email, Success: false, Error: err.Error()}}
 		}
 		nickname := item.Remark
 		if nickname == "" {
@@ -72,26 +147,19 @@ func (a *App) ImportByEmailPassword(items []EmailPasswordItem) []ImportResult {
 		acc.RefreshToken = resp.RefreshToken
 		acc.TokenExpiresAt = time.Now().Add(1 * time.Hour).Format(time.RFC3339)
 		acc.Remark = item.Remark
-		a.enrichAccountInfo(acc) // 完整版：包含 RegisterUser 获取 API Key（MITM 号池需要）
-		if err := a.store.AddAccount(*acc); err != nil {
-			results = append(results, ImportResult{Email: item.Email, Success: false, Error: err.Error()})
-			continue
-		}
-		results = append(results, ImportResult{Email: item.Email, Success: true})
-	}
-	return results
+		a.enrichAccountInfo(acc)
+		return importSlot{index: idx, result: ImportResult{Email: item.Email, Success: true}, acc: acc}
+	})
 }
 
 func (a *App) ImportByRefreshToken(items []TokenItem) []ImportResult {
-	defer a.syncMitmPoolKeys()
-	var results []ImportResult
-	for i, item := range items {
+	return a.runConcurrentImport(len(items), func(idx int) importSlot {
+		item := items[idx]
 		resp, err := a.windsurfSvc.RefreshToken(item.Token)
 		if err != nil {
-			results = append(results, ImportResult{
-				Email: fmt.Sprintf("Token #%d", i+1), Success: false, Error: err.Error(),
-			})
-			continue
+			return importSlot{index: idx, result: ImportResult{
+				Email: fmt.Sprintf("Token #%d", idx+1), Success: false, Error: err.Error(),
+			}}
 		}
 		email, _ := a.windsurfSvc.GetAccountInfo(resp.IDToken)
 		if email == "" {
@@ -106,26 +174,19 @@ func (a *App) ImportByRefreshToken(items []TokenItem) []ImportResult {
 		acc.RefreshToken = resp.RefreshToken
 		acc.TokenExpiresAt = time.Now().Add(1 * time.Hour).Format(time.RFC3339)
 		acc.Remark = item.Remark
-		a.enrichAccountInfo(acc) // 完整版：获取 API Key
-		if err := a.store.AddAccount(*acc); err != nil {
-			results = append(results, ImportResult{Email: email, Success: false, Error: err.Error()})
-			continue
-		}
-		results = append(results, ImportResult{Email: email, Success: true})
-	}
-	return results
+		a.enrichAccountInfo(acc)
+		return importSlot{index: idx, result: ImportResult{Email: email, Success: true}, acc: acc}
+	})
 }
 
 func (a *App) ImportByAPIKey(items []APIKeyItem) []ImportResult {
-	defer a.syncMitmPoolKeys()
-	var results []ImportResult
-	for i, item := range items {
+	return a.runConcurrentImport(len(items), func(idx int) importSlot {
+		item := items[idx]
 		jwt, err := a.windsurfSvc.GetJWTByAPIKey(item.APIKey)
 		if err != nil {
-			results = append(results, ImportResult{
-				Email: fmt.Sprintf("Key #%d", i+1), Success: false, Error: err.Error(),
-			})
-			continue
+			return importSlot{index: idx, result: ImportResult{
+				Email: fmt.Sprintf("Key #%d", idx+1), Success: false, Error: err.Error(),
+			}}
 		}
 
 		email := fmt.Sprintf("%s...%s", item.APIKey[:minInt(12, len(item.APIKey))],
@@ -139,21 +200,14 @@ func (a *App) ImportByAPIKey(items []APIKeyItem) []ImportResult {
 		if item.Remark == "" {
 			acc.Nickname = strings.Split(acc.Email, "@")[0]
 		}
-
-		if err := a.store.AddAccount(*acc); err != nil {
-			results = append(results, ImportResult{Email: acc.Email, Success: false, Error: err.Error()})
-			continue
-		}
-		results = append(results, ImportResult{Email: acc.Email, Success: true})
-	}
-	return results
+		return importSlot{index: idx, result: ImportResult{Email: acc.Email, Success: true}, acc: acc}
+	})
 }
 
 func (a *App) ImportByJWT(items []JWTItem) []ImportResult {
-	defer a.syncMitmPoolKeys()
-	var results []ImportResult
-	for i, item := range items {
-		email := fmt.Sprintf("JWT #%d", i+1)
+	return a.runConcurrentImport(len(items), func(idx int) importSlot {
+		item := items[idx]
+		email := fmt.Sprintf("JWT #%d", idx+1)
 		acc := models.NewAccount(email, "", item.Remark)
 		acc.Token = item.JWT
 		acc.Remark = item.Remark
@@ -167,14 +221,8 @@ func (a *App) ImportByJWT(items []JWTItem) []ImportResult {
 		if item.Remark == "" {
 			acc.Nickname = strings.Split(acc.Email, "@")[0]
 		}
-
-		if err := a.store.AddAccount(*acc); err != nil {
-			results = append(results, ImportResult{Email: acc.Email, Success: false, Error: err.Error()})
-			continue
-		}
-		results = append(results, ImportResult{Email: acc.Email, Success: true})
-	}
-	return results
+		return importSlot{index: idx, result: ImportResult{Email: acc.Email, Success: true}, acc: acc}
+	})
 }
 
 // 单个添加

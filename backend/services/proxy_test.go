@@ -199,7 +199,7 @@ func TestHandleResponseStreamQuotaExhaustedRotatesImmediately(t *testing.T) {
 	proxy.keyStates["sk-ws-a"] = &PoolKeyState{APIKey: "sk-ws-a", Healthy: true, JWT: []byte("jwt-a")}
 	proxy.keyStates["sk-ws-b"] = &PoolKeyState{APIKey: "sk-ws-b", Healthy: true, JWT: []byte("jwt-b")}
 
-	req, err := http.NewRequest(http.MethodPost, "https://server.self-serve.windsurf.com/exa.chat_pb.ChatService/GetChatMessage", nil)
+	req, err := http.NewRequest(http.MethodPost, "https://server.self-serve.windsurf.com/exa.api_server_pb.ApiServerService/GetChatMessage", nil)
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)
 	}
@@ -347,6 +347,89 @@ func TestRetryTransportAuthFailureRefreshesJWTAndRetries(t *testing.T) {
 	}
 	if got := string(proxy.jwtBytesForKey("sk-ws-a")); got != "jwt-new-sk-ws-a" {
 		t.Fatalf("jwtBytesForKey() = %q, want refreshed JWT", got)
+	}
+}
+
+// TestClassifyUpstreamFailureStatus9QuotaExhausted 验证 gRPC status 9 (FAILED_PRECONDITION) + 额度文本 → quota
+func TestClassifyUpstreamFailureStatus9QuotaExhausted(t *testing.T) {
+	// 场景1: status 9 + grpc-message 含 quota 文本（Trailers-Only, body 为空）
+	kind, _ := classifyUpstreamFailure("9",
+		"Failed precondition: Your daily usage quota has been exhausted. Please ensure Windsurf is up to date.",
+		"")
+	if kind != upstreamFailureQuota {
+		t.Fatalf("status=9 + grpc-message quota: kind = %q, want %q", kind, upstreamFailureQuota)
+	}
+
+	// 场景2: status 9 + body 含 quota JSON（Connect 协议）
+	kind2, _ := classifyUpstreamFailure("9", "",
+		`{"code":"failed_precondition","message":"Your daily usage quota has been exhausted."}`)
+	if kind2 != upstreamFailureQuota {
+		t.Fatalf("status=9 + body quota JSON: kind = %q, want %q", kind2, upstreamFailureQuota)
+	}
+
+	// 场景3: status 9 但无 quota 关键词 → 不应判为 quota
+	kind3, _ := classifyUpstreamFailure("9", "Failed precondition: something else", "")
+	if kind3 == upstreamFailureQuota {
+		t.Fatalf("status=9 + no quota text: kind = %q, should NOT be quota", kind3)
+	}
+}
+
+// TestRetryTransportGRPCStatus9EmptyBodyQuotaRotates 验证 gRPC Trailers-Only (status 9, body 空) 触发轮转
+func TestRetryTransportGRPCStatus9EmptyBodyQuotaRotates(t *testing.T) {
+	originalInject := injectCodeiumConfigFn
+	t.Cleanup(func() {
+		injectCodeiumConfigFn = originalInject
+	})
+	injectCodeiumConfigFn = func(apiKey string) error { return nil }
+
+	proxy := NewMitmProxy(nil, nil, "")
+	proxy.poolKeys = []string{"sk-ws-a", "sk-ws-b"}
+	proxy.keyStates["sk-ws-a"] = &PoolKeyState{APIKey: "sk-ws-a", Healthy: true, JWT: []byte("jwt-a")}
+	proxy.keyStates["sk-ws-b"] = &PoolKeyState{APIKey: "sk-ws-b", Healthy: true, JWT: []byte("jwt-b")}
+
+	calls := 0
+	base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			// 模拟 gRPC Trailers-Only: status 9, body 为空
+			return &http.Response{
+				StatusCode:    200,
+				ContentLength: 0,
+				Body:          io.NopCloser(bytes.NewReader(nil)),
+				Header: http.Header{
+					"Content-Type": []string{"application/grpc"},
+					"Grpc-Status":  []string{"9"},
+					"Grpc-Message": []string{"Failed%20precondition%3A%20Your%20daily%20usage%20quota%20has%20been%20exhausted."},
+				},
+				Request: req,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode:    200,
+			ContentLength: 2,
+			Body:          io.NopCloser(bytes.NewBufferString("ok")),
+			Header:        make(http.Header),
+			Request:       req,
+		}, nil
+	})
+
+	rt := &retryTransport{base: base, proxy: proxy, maxRetry: 1}
+	req, _ := http.NewRequest(http.MethodPost, "https://server.self-serve.windsurf.com/test", bytes.NewBufferString("body"))
+	req.Header.Set("X-Pool-Key-Used", "sk-ws-a")
+	req.Header.Set("Authorization", "Bearer jwt-a")
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+	if resp == nil {
+		t.Fatal("RoundTrip() response is nil")
+	}
+	if calls != 2 {
+		t.Fatalf("RoundTrip() calls = %d, want 2 (original + retry)", calls)
+	}
+	if got := proxy.CurrentAPIKey(); got != "sk-ws-b" {
+		t.Fatalf("CurrentAPIKey() = %q, want %q (rotated)", got, "sk-ws-b")
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+func intPtr(v int) *int { return &v }
+
 func TestDecodeJWTClaims(t *testing.T) {
 	payload, err := json.Marshal(map[string]interface{}{
 		"email":                         "trial@example.com",
@@ -50,12 +52,12 @@ func TestParsePlanStatusPayload(t *testing.T) {
 	profile := parsePlanStatusPayload(planStatusPayload{
 		AvailablePromptCredits:      5000,
 		AvailableFlowCredits:        300,
-		UsedPromptCredits:           1200,
-		UsedUsageCredits:            200,
+		UsedPromptCredits:           intPtr(1200),
+		UsedUsageCredits:            intPtr(200),
 		DailyQuotaRemainingPercent:  &daily,
 		WeeklyQuotaRemainingPercent: &weekly,
-		DailyQuotaResetAtUnix:       1774080000,
-		WeeklyQuotaResetAtUnix:      1774166400,
+		DailyQuotaResetAtUnix:       json.RawMessage(`"1774080000"`),
+		WeeklyQuotaResetAtUnix:      json.RawMessage(`"1774166400"`),
 		PlanEnd:                     json.RawMessage(`"2026-03-29T08:00:00Z"`),
 		PlanInfo: struct {
 			PlanName        string `json:"planName"`

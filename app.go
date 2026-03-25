@@ -8,6 +8,7 @@ import (
 	"time"
 	"windsurf-tools-wails/backend/services"
 	"windsurf-tools-wails/backend/store"
+	"windsurf-tools-wails/backend/utils"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -55,12 +56,52 @@ func (a *App) initBackend() error {
 	a.windsurfSvc = services.NewWindsurfService(proxyURL)
 	a.switchSvc = services.NewSwitchService()
 	a.patchSvc = services.NewPatchService()
+	// ── 调试日志 ──
+	utils.InitDebugLogger(s.DataDir(), settings.DebugLog)
 	a.mitmProxy = services.NewMitmProxy(a.windsurfSvc, func(msg string) {
-		fmt.Println(msg)
+		utils.DLog("[MITM] %s", msg)
 	}, proxyURL)
+	a.mitmProxy.SetOnKeyExhausted(func(apiKey string) {
+		utils.DLog("[回调] onKeyExhausted 触发: key=%s...", apiKey[:min(12, len(apiKey))])
+		accID := findAccountIDForMITMAPIKey(a.store.GetAllAccounts(), apiKey)
+		if accID == "" {
+			utils.DLog("[回调] onKeyExhausted: 在号池中未找到匹配 key，跳过")
+			return
+		}
+		utils.DLog("[回调] onKeyExhausted: 匹配到账号 id=%s，刷新额度...", accID[:min(8, len(accID))])
+		_ = a.RefreshAccountQuota(accID)
+		// ★ 立即触发切号（之前只刷额度不切号，导致 IDE 继续用耗尽账号）
+		s := a.store.GetSettings()
+		if s.AutoSwitchOnQuotaExhausted {
+			utils.DLog("[回调] onKeyExhausted: AutoSwitch=true mitmOnly=%v → 立即切号", s.MitmOnly)
+			if s.MitmOnly {
+				if next, err := a.rotateMitmToNextAvailable(accID, s.AutoSwitchPlanFilter); err != nil {
+					utils.DLog("[回调] onKeyExhausted: MITM轮换失败: %v", err)
+				} else {
+					utils.DLog("[回调] onKeyExhausted: MITM轮换成功 → %s", next.Email)
+				}
+			} else {
+				if next, err := a.AutoSwitchToNext(accID, s.AutoSwitchPlanFilter); err != nil {
+					utils.DLog("[回调] onKeyExhausted: AutoSwitchToNext失败: %v", err)
+				} else {
+					utils.DLog("[回调] onKeyExhausted: AutoSwitchToNext成功 → %s", next)
+				}
+			}
+		} else {
+			utils.DLog("[回调] onKeyExhausted: AutoSwitchOnQuotaExhausted=false，不切号")
+		}
+	})
 	a.openaiRelay = services.NewOpenAIRelay(a.mitmProxy, func(msg string) {
-		fmt.Println(msg)
+		utils.DLog("[Relay] %s", msg)
 	}, proxyURL)
+	a.openaiRelay.SetOnSuccess(func(apiKey string) {
+		accounts := a.store.GetAllAccounts()
+		accID := findAccountIDForMITMAPIKey(accounts, apiKey)
+		if accID == "" {
+			return
+		}
+		_ = a.RefreshAccountQuota(accID)
+	})
 	a.syncMitmPoolKeys()
 	if settings.AutoRefreshTokens {
 		a.startAutoRefresh()

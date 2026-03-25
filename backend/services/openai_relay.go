@@ -2,6 +2,7 @@ package services
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -13,21 +14,31 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // OpenAIRelay 本地 OpenAI 兼容 API 中转服务器
 type OpenAIRelay struct {
-	mu       sync.RWMutex
-	server   *http.Server
-	listener net.Listener
-	running  bool
-	port     int
-	secret   string     // Bearer token 鉴权
-	proxy    *MitmProxy // 复用账号池
-	logFn    func(string)
-	proxyURL string            // 出站代理
-	upstream http.RoundTripper // 持久连接池
-	maxRetry int               // 额度耗尽重试次数
+	mu        sync.RWMutex
+	server    *http.Server
+	listener  net.Listener
+	running   bool
+	port      int
+	secret    string     // Bearer token 鉴权
+	proxy     *MitmProxy // 复用账号池
+	logFn     func(string)
+	onSuccess func(apiKey string) // 请求成功后回调（用于触发额度刷新）
+	proxyURL  string              // 出站代理
+	upstream  http.RoundTripper   // 持久连接池
+	maxRetry  int                 // 额度耗尽重试次数
+}
+
+// SetOnSuccess 设置请求成功回调（App 层用来触发额度刷新）
+func (r *OpenAIRelay) SetOnSuccess(fn func(apiKey string)) {
+	r.mu.Lock()
+	r.onSuccess = fn
+	r.mu.Unlock()
 }
 
 type OpenAIRelayStatus struct {
@@ -141,7 +152,50 @@ func (r *OpenAIRelay) handleModels(w http.ResponseWriter, req *http.Request) {
 	if !r.checkAuth(w, req) {
 		return
 	}
-	models := []string{"gpt-4", "gpt-4o", "claude-3.5-sonnet", "cascade"}
+	models := []string{
+		// Windsurf
+		"cascade",
+		// OpenAI GPT
+		"gpt-3.5-turbo", "gpt-3.5-turbo-16k",
+		"gpt-4", "gpt-4-32k", "gpt-4-turbo",
+		"gpt-4o", "gpt-4o-mini", "gpt-4o-latest",
+		"gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
+		"gpt-5", "gpt-5-nano", "gpt-5-pro",
+		"gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-mini",
+		"gpt-5.2", "gpt-5.2-codex",
+		"gpt-5.3-codex", "gpt-5.3-codex-spark-preview",
+		"gpt-oss-120b",
+		// OpenAI o-series
+		"o1", "o1-mini", "o1-preview",
+		"o3", "o3-mini", "o3-pro",
+		// Anthropic Claude
+		"claude-3-opus", "claude-3-sonnet",
+		"claude-3.5-haiku", "claude-3p5", "claude-3p7",
+		"claude-sonnet-4", "claude-sonnet-4.5", "claude-sonnet-4.6",
+		"claude-sonnet-4-6-1m", "claude-sonnet-4-6-thinking",
+		"claude-opus-4", "claude-opus-4.1", "claude-opus-4.5",
+		"claude-opus-4.6", "claude-opus-4-6-1m", "claude-opus-4-6-1m-max",
+		"claude-opus-4-6-thinking-1m", "claude-opus-4-6-thinking-1m-max",
+		"claude-opus-4-6-fast", "claude-opus-4-6-thinking-fast",
+		"claude-opus-4-5-20251101",
+		// Google Gemini
+		"gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
+		"gemini-3.0-pro", "gemini-3.0-flash",
+		"gemini-3.1-pro", "gemini-3-1-pro-high", "gemini-3-1-pro-low",
+		"gemini-3-pro", "gemini-3-flash-preview",
+		// Meta Llama
+		"llama-3.1-70b-instruct", "llama-3.1-405b-instruct",
+		"llama-3.3-70b-instruct", "llama-3.3-70b-instruct-r1",
+		// DeepSeek
+		"deepseek-v3", "deepseek-r1", "deepseek-r1-distill-llama-70b",
+		// Qwen
+		"qwen-2.5-7b-instruct", "qwen-2.5-32b-instruct",
+		// Mistral
+		"devstral",
+		// Internal codenames
+		"crispy-unicorn", "crispy-unicorn-thinking",
+		"fierce-falcon", "robin-alpha-next", "skyhawk",
+	}
 	var data []map[string]interface{}
 	for _, m := range models {
 		data = append(data, map[string]interface{}{
@@ -182,7 +236,7 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 
 	stream := chatReq.Stream != nil && *chatReq.Stream
 
-	// 从账号池拿 key + JWT（支持额度耗尽自动轮转重试）
+	// 从账号池拿 key + JWT（支持额度耗尽 / 认证失败自动轮转重试）
 	var respBody io.ReadCloser
 	var usedKey string
 	for attempt := 0; attempt <= r.maxRetry; attempt++ {
@@ -201,15 +255,24 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 		protoBody := BuildChatRequest(chatReq.Messages, apiKey, jwtStr, "")
 		grpcPayload := WrapGRPCEnvelope(protoBody)
 
-		body, err := r.sendGRPC(grpcPayload, apiKey, jwtStr)
+		body, kind, err := r.sendGRPC(grpcPayload, apiKey, jwtStr)
 		if err != nil {
-			errStr := strings.ToLower(err.Error())
-			if isQuotaExhaustedText(errStr) || strings.Contains(errStr, "resource_exhausted") {
+			if kind == upstreamFailureQuota {
 				r.log("额度耗尽 key=%s... 自动轮转重试(%d/%d)", truncKey(apiKey), attempt+1, r.maxRetry)
 				r.proxy.markRuntimeExhaustedAndRotate(apiKey, "relay-quota")
 				continue
 			}
-			r.log("gRPC error: %v", err)
+			if kind == upstreamFailureAuth {
+				r.log("认证失败 key=%s... 尝试刷新JWT(%d/%d)", truncKey(apiKey), attempt+1, r.maxRetry)
+				refreshed := r.proxy.refreshJWTForKey(apiKey)
+				if len(refreshed) > 0 {
+					continue // 用刷新后的 JWT 重试（pickPoolKeyAndJWT 会拿到新 JWT）
+				}
+				r.log("JWT 刷新失败，尝试切到下一把 key")
+				r.proxy.markRuntimeExhaustedAndRotate(apiKey, "relay-auth")
+				continue
+			}
+			r.log("gRPC error (kind=%s): %v", string(kind), err)
 			writeOpenAIError(w, 502, "upstream_error", err.Error())
 			return
 		}
@@ -221,7 +284,6 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 		return
 	}
 	defer respBody.Close()
-	_ = usedKey
 
 	chatID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 	model := chatReq.Model
@@ -234,6 +296,15 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 	} else {
 		r.blockingResponse(w, respBody, chatID, model)
 	}
+
+	// 请求成功：更新号池状态 + 触发额度刷新
+	r.proxy.RecordKeySuccess(usedKey)
+	r.mu.RLock()
+	cb := r.onSuccess
+	r.mu.RUnlock()
+	if cb != nil {
+		go cb(usedKey)
+	}
 }
 
 // buildUpstreamTransport 构建持久化 transport（与 MITM 上游一致，http.Transport + ForceAttemptHTTP2）
@@ -241,7 +312,8 @@ func (r *OpenAIRelay) buildUpstreamTransport() http.RoundTripper {
 	t := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
-			ServerName:         UpstreamHost,
+			ServerName:         GRPCUpstreamHost,
+			NextProtos:         []string{"h2"},
 		},
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          50,
@@ -255,38 +327,60 @@ func (r *OpenAIRelay) buildUpstreamTransport() http.RoundTripper {
 			r.log("出站代理: %s", r.proxyURL)
 		}
 	}
+	// 显式配置 HTTP/2（gRPC 必须 h2）
+	if err := http2.ConfigureTransport(t); err != nil {
+		r.log("http2.ConfigureTransport 失败: %v (回退 ForceAttemptHTTP2)", err)
+	}
+	r.log("transport built: ServerName=%s h2=explicit proxy=%s", GRPCUpstreamHost, r.proxyURL)
 	return t
 }
 
-// sendGRPC 向 Windsurf 上游发送 gRPC 请求，返回响应 body
-func (r *OpenAIRelay) sendGRPC(payload []byte, apiKey, jwt string) (io.ReadCloser, error) {
-	grpcURL := fmt.Sprintf("https://%s/exa.chat_pb.ChatService/GetChatMessage", UpstreamIP)
-	httpReq, err := http.NewRequest("POST", grpcURL, strings.NewReader(string(payload)))
+// sendGRPC 向 Windsurf 上游发送 gRPC 请求，返回响应 body 与失败分类。
+// 同时检测 gRPC Trailers-Only 模式（HTTP 200 但 grpc-status 头非零）。
+func (r *OpenAIRelay) sendGRPC(payload []byte, apiKey, jwt string) (io.ReadCloser, upstreamFailureKind, error) {
+	upIP := ResolveUpstreamIP()
+	grpcURL := fmt.Sprintf("https://%s/exa.api_server_pb.ApiServerService/GetChatMessage", upIP)
+	httpReq, err := http.NewRequest("POST", grpcURL, bytes.NewReader(payload))
 	if err != nil {
-		return nil, err
+		return nil, upstreamFailureNone, err
 	}
-	httpReq.Host = UpstreamHost
+	httpReq.Host = GRPCUpstreamHost
 	httpReq.Header.Set("content-type", "application/grpc")
 	httpReq.Header.Set("te", "trailers")
 	httpReq.Header.Set("authorization", "Bearer "+jwt)
+	httpReq.Header.Set("user-agent", "connect-es/1.6.1")
+	httpReq.Header.Set("x-client-name", WindsurfAppName)
+	httpReq.Header.Set("x-client-version", WindsurfVersion)
 
 	transport := r.upstream
 	if transport == nil {
 		transport = r.buildUpstreamTransport()
 	}
+	r.log("sendGRPC → %s (host=%s) payload=%dB", upIP, GRPCUpstreamHost, len(payload))
 	resp, err := transport.RoundTrip(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("grpc roundtrip: %w", err)
+		return nil, upstreamFailureNone, fmt.Errorf("grpc roundtrip to %s: %w", upIP, err)
 	}
-	if resp.StatusCode != 200 {
+
+	grpcStatus := resp.Header.Get("grpc-status")
+	grpcMsg := resp.Header.Get("grpc-message")
+
+	// 非 200 或 Trailers-Only 错误（HTTP 200 + grpc-status 头非空非 0）
+	isHTTPErr := resp.StatusCode != 200
+	isTrailersOnlyErr := grpcStatus != "" && grpcStatus != "0"
+	if isHTTPErr || isTrailersOnlyErr {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		grpcStatus := resp.Header.Get("grpc-status")
-		grpcMsg := resp.Header.Get("grpc-message")
-		return nil, fmt.Errorf("grpc status %d (grpc-status=%s, msg=%s): %s",
-			resp.StatusCode, grpcStatus, grpcMsg, truncate(string(body), 200))
+		kind, detail := classifyUpstreamFailure(grpcStatus, grpcMsg, string(body))
+		r.log("sendGRPC error: ip=%s status=%d proto=%s grpc-status=%s kind=%s detail=%s body=%s",
+			upIP, resp.StatusCode, resp.Proto, grpcStatus, string(kind), detail, truncate(string(body), 200))
+		if detail == "" {
+			detail = fmt.Sprintf("upstream HTTP %d (proto=%s), grpc-status=%s, grpc-message=%s", resp.StatusCode, resp.Proto, grpcStatus, grpcMsg)
+		}
+		return nil, kind, fmt.Errorf("%s", detail)
 	}
-	return resp.Body, nil
+	r.log("sendGRPC ok: proto=%s status=%d", resp.Proto, resp.StatusCode)
+	return resp.Body, upstreamFailureNone, nil
 }
 
 // streamResponse 将 gRPC 流式响应转为 SSE

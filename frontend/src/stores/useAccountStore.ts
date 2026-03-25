@@ -86,10 +86,6 @@ export const useAccountStore = defineStore('account', () => {
     return APIInfo.autoSwitchToNext(currentId, planFilter)
   }
 
-  const openAccountInIsolatedWindow = async (id: string): Promise<string> => {
-    return APIInfo.openAccountInIsolatedWindow(id)
-  }
-
   return {
     accounts,
     isLoading,
@@ -102,6 +98,5 @@ export const useAccountStore = defineStore('account', () => {
     refreshAllQuotas,
     refreshAccountQuota,
     autoSwitchToNext,
-    openAccountInIsolatedWindow,
   }
 })

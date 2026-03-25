@@ -13,7 +13,53 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"windsurf-tools-wails/backend/utils"
 )
+
+// ── 动态 DNS 解析（兼容 VPN / IP 漂移） ──
+
+var (
+	resolvedIP string
+	resolvedAt time.Time
+	resolveMu  sync.RWMutex
+	resolveTTL = 5 * time.Minute
+)
+
+// ResolveUpstreamIP 动态解析上游 IP，带缓存（TTL 5 分钟），失败时回退硬编码。
+func ResolveUpstreamIP() string {
+	resolveMu.RLock()
+	if resolvedIP != "" && time.Since(resolvedAt) < resolveTTL {
+		ip := resolvedIP
+		resolveMu.RUnlock()
+		return ip
+	}
+	resolveMu.RUnlock()
+
+	resolveMu.Lock()
+	defer resolveMu.Unlock()
+	// double-check after acquiring write lock
+	if resolvedIP != "" && time.Since(resolvedAt) < resolveTTL {
+		return resolvedIP
+	}
+
+	ips, err := net.LookupHost(UpstreamHost)
+	if err == nil {
+		for _, ip := range ips {
+			if !strings.HasPrefix(ip, "127.") && !strings.Contains(ip, ":") {
+				resolvedIP = ip
+				resolvedAt = time.Now()
+				log.Printf("[DNS] %s → %s", UpstreamHost, ip)
+				return ip
+			}
+		}
+	}
+	// DNS 失败或返回 127.x（已被 hosts 劫持），回退硬编码
+	if resolvedIP != "" {
+		return resolvedIP // 用上次缓存
+	}
+	log.Printf("[DNS] 解析 %s 失败(%v)，回退 %s", UpstreamHost, err, UpstreamIP)
+	return UpstreamIP
+}
 
 const (
 	TargetDomain = "server.self-serve.windsurf.com"
@@ -60,9 +106,14 @@ func (s *PoolKeyState) isAvailable() bool {
 	if s.Healthy {
 		return true
 	}
+	// RuntimeExhausted 的 key 不靠冷却自动恢复；只有 recordSuccess / ClearKeyExhausted 能解除。
+	// 这确保额度真正耗尽的 key 不会 10 分钟后被回收重试。
+	if s.RuntimeExhausted {
+		return false
+	}
+	// 非额度耗尽的瞬态错误冷却：到期后恢复
 	if time.Now().After(s.CooldownUntil) {
 		s.Healthy = true
-		s.RuntimeExhausted = false
 		s.ConsecutiveErrs = 0
 		return true
 	}
@@ -74,6 +125,15 @@ func (s *PoolKeyState) recordSuccess() {
 	s.SuccessCount++
 	s.RuntimeExhausted = false
 	s.ConsecutiveErrs = 0
+}
+
+// RecordKeySuccess 外部（如 Relay）通知号池某个 key 请求成功
+func (p *MitmProxy) RecordKeySuccess(apiKey string) {
+	p.mu.Lock()
+	if state := p.keyStates[apiKey]; state != nil {
+		state.recordSuccess()
+	}
+	p.mu.Unlock()
 }
 
 func (s *PoolKeyState) recordError() bool {
@@ -95,10 +155,11 @@ type MitmProxy struct {
 	currentIdx int
 	jwtLock    sync.RWMutex
 
-	windsurfSvc  *WindsurfService // for JWT refresh
-	logFn        func(string)     // log callback for UI
-	eventsMu     sync.RWMutex
-	recentEvents []MitmProxyEvent
+	windsurfSvc    *WindsurfService    // for JWT refresh
+	logFn          func(string)        // log callback for UI
+	onKeyExhausted func(apiKey string) // 额度耗尽回调（App 层刷新额度+同步号池）
+	eventsMu       sync.RWMutex
+	recentEvents   []MitmProxyEvent
 
 	jwtReady chan struct{} // closed when at least one JWT is available
 	jwtOnce  sync.Once
@@ -185,17 +246,35 @@ func (p *MitmProxy) syncCurrentAPIKeyToClient(apiKey string) {
 	p.log("同步本地 API Key: %s...", apiKey[:minStr(12, len(apiKey))])
 }
 
+// SetOnKeyExhausted 设置额度耗尽回调（App 层用来触发额度刷新 + 同步号池）
+func (p *MitmProxy) SetOnKeyExhausted(fn func(apiKey string)) {
+	p.mu.Lock()
+	p.onKeyExhausted = fn
+	p.mu.Unlock()
+}
+
 func (p *MitmProxy) markRuntimeExhaustedAndRotate(usedKey, detail string) string {
+	p.log("★ markRuntimeExhaustedAndRotate: key=%s... detail=%s", usedKey[:minStr(12, len(usedKey))], detail)
 	rotatedKey := ""
 	p.mu.Lock()
 	if state := p.keyStates[usedKey]; state != nil {
 		state.markExhausted()
 	}
 	rotatedKey = p.rotateKey()
+	cb := p.onKeyExhausted
+	poolSize := len(p.poolKeys)
 	p.mu.Unlock()
 	p.recordUpstreamFailure(upstreamFailureQuota, detail, usedKey)
 	if rotatedKey != "" {
+		p.log("★ 额度耗尽轮转: %s... → %s... (pool=%d)", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))], poolSize)
 		p.syncCurrentAPIKeyToClient(rotatedKey)
+	} else {
+		p.log("★ 额度耗尽但无可轮转 key (pool=%d)", poolSize)
+	}
+	// 异步触发 App 层刷新耗尽 key 的额度 → 更新 store → syncMitmPoolKeys 移除
+	if cb != nil {
+		p.log("★ 触发 onKeyExhausted 回调: key=%s...", usedKey[:minStr(12, len(usedKey))])
+		go cb(usedKey)
 	}
 	return rotatedKey
 }
@@ -235,6 +314,10 @@ func (b *quotaStreamWatchBody) scanChunk(chunk []byte) {
 		combined = combined[len(combined)-streamQuotaWindow:]
 	}
 	b.recentText = combined
+	// 诊断：流式 chunk 中 precondition/quota/exhaust 关键词出现时记录
+	if strings.Contains(lower, "precondition") || strings.Contains(lower, "exhaust") || strings.Contains(lower, "quota") {
+		trafficLog("  STREAM-SCAN hit: chunk[%d] matched keyword, combined[%d]", len(chunk), len(combined))
+	}
 	if !isQuotaExhaustedText(combined) {
 		return
 	}
@@ -259,6 +342,7 @@ func (p *MitmProxy) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf("[MITM] "+format, args...)
 	p.appendRecentEvent(msg)
 	log.Println(msg)
+	utils.DLog("%s", msg)
 	if p.logFn != nil {
 		p.logFn(msg)
 	}
@@ -558,6 +642,7 @@ func (p *MitmProxy) buildUpstreamTransport() *http.Transport {
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 			ServerName:         UpstreamHost,
+			NextProtos:         []string{"h2", "http/1.1"},
 		},
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
@@ -620,12 +705,22 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// 读取响应体检查是否为额度耗尽
 		respBody, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil || len(respBody) == 0 {
+		if err != nil {
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			return resp, nil
 		}
 
-		kind, detail := classifyUpstreamFailure(resp.Header.Get("grpc-status"), resp.Header.Get("grpc-message"), string(respBody))
+		// gRPC Trailers-Only 错误: body 为空但 grpc-status/grpc-message 在 header 或 trailer 中
+		grpcStatus := resp.Header.Get("grpc-status")
+		grpcMsg := resp.Header.Get("grpc-message")
+		if grpcStatus == "" {
+			grpcStatus = resp.Trailer.Get("grpc-status")
+		}
+		if grpcMsg == "" {
+			grpcMsg = resp.Trailer.Get("grpc-message")
+		}
+
+		kind, detail := classifyUpstreamFailure(grpcStatus, grpcMsg, string(respBody))
 		isExhausted := kind == upstreamFailureQuota
 		isAuthFailure := kind == upstreamFailureAuth
 		usedKey := req.Header.Get("X-Pool-Key-Used")
@@ -731,7 +826,7 @@ func (p *MitmProxy) serve() {
 
 			p.handleRequest(req, origHost)
 			req.URL.Scheme = "https"
-			req.URL.Host = UpstreamIP
+			req.URL.Host = ResolveUpstreamIP()
 			req.Host = origHost // 用原始域名作为 Host 头
 		},
 		Transport: &retryTransport{
@@ -776,6 +871,17 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 
 	ct := req.Header.Get("Content-Type")
 	isProto := strings.Contains(strings.ToLower(ct), "proto") || strings.Contains(strings.ToLower(ct), "grpc")
+
+	// ★ 全量流量记录
+	trafficLog("REQ  %s %s (host=%s ct=%s cl=%d)", req.Method, path, origHost, ct, req.ContentLength)
+	// 记录 Authorization header（截断）用于诊断身份替换问题
+	if strings.Contains(path, "GetUserStatus") || strings.Contains(path, "GetUserJwt") {
+		auth := req.Header.Get("Authorization")
+		if len(auth) > 50 {
+			auth = auth[:50] + "..."
+		}
+		trafficLog("  AUTH: %s", auth)
+	}
 
 	if !isProto {
 		// Non-protobuf requests: just forward
@@ -837,6 +943,30 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 		pathTail = path[idx+1:]
 	}
 
+	// ★ 全量流量记录（所有响应都记）
+	respCT := resp.Header.Get("Content-Type")
+	grpcSt := resp.Header.Get("grpc-status")
+	trafficLog("RESP %s %s → %d (ct=%s cl=%d grpc-status=%s)", resp.Request.Method, path, resp.StatusCode, respCT, resp.ContentLength, grpcSt)
+
+	// 对额度/套餐相关路径 dump 响应体
+	isQuotaPath := strings.Contains(path, "PlanStatus") || strings.Contains(path, "UserStatus") ||
+		strings.Contains(path, "GetUser") || strings.Contains(path, "RegisterUser") ||
+		strings.Contains(path, "Subscription") || strings.Contains(path, "quota") ||
+		strings.Contains(path, "Credit") || strings.Contains(path, "Billing") ||
+		strings.Contains(path, "SeatManagement") || strings.Contains(path, "CurrentUser")
+	if isQuotaPath && resp.Body != nil && resp.ContentLength < 500000 {
+		bodySnap, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err == nil && len(bodySnap) > 0 {
+			trafficLogMu.Lock()
+			seq := trafficSeq
+			trafficLogMu.Unlock()
+			dumpPath := TrafficDumpBody(seq, sanitizePathForFile(pathTail), bodySnap)
+			trafficLog("  DUMP %s (%d bytes) → %s", pathTail, len(bodySnap), dumpPath)
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(bodySnap))
+	}
+
 	usedKey := resp.Request.Header.Get("X-Pool-Key-Used")
 	resp.Request.Header.Del("X-Pool-Key-Used") // clean up internal header
 
@@ -844,7 +974,11 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 		return
 	}
 
-	ct := resp.Request.Header.Get("Content-Type")
+	// 优先检查响应 Content-Type；某些 gRPC 上游不返回 CT 时回退到请求 CT
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = resp.Request.Header.Get("Content-Type")
+	}
 	isProto := strings.Contains(strings.ToLower(ct), "proto") || strings.Contains(strings.ToLower(ct), "grpc")
 	isBilling := strings.Contains(path, "GetChatMessage") || strings.Contains(path, "GetCompletions")
 
@@ -855,14 +989,29 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 
 	if isProto && resp.Body != nil {
 		// 对小响应体直接完整读取；对对话/补全的大流式响应改为边转发边检测配额错误。
-		shouldCheckBuffered := (resp.ContentLength >= 0 && resp.ContentLength < 5000) || resp.StatusCode >= 400
+		// Trailers-Only gRPC 错误可能 ContentLength=-1 但 grpc-status 已在 header 中
+		hasGRPCStatusHeader := resp.Header.Get("grpc-status") != "" && resp.Header.Get("grpc-status") != "0"
+		shouldCheckBuffered := (resp.ContentLength >= 0 && resp.ContentLength < 5000) || resp.StatusCode >= 400 || hasGRPCStatusHeader
 		shouldWatchStream := isBilling && resp.StatusCode == 200 && !shouldCheckBuffered
+		if isBilling {
+			trafficLog("  BILLING-PATH: path=%s isProto=%v buffered=%v stream=%v cl=%d status=%d grpcSt=%s key=%s...",
+				pathTail, isProto, shouldCheckBuffered, shouldWatchStream, resp.ContentLength, resp.StatusCode, grpcSt, usedKey[:minStr(12, len(usedKey))])
+		}
 
 		if shouldCheckBuffered {
 			bodyBytes, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			if err == nil && len(bodyBytes) > 0 {
-				kind, detail := classifyUpstreamFailure(resp.Header.Get("grpc-status"), resp.Header.Get("grpc-message"), string(bodyBytes))
+			if err == nil {
+				// 同 retryTransport: 优先 header，回退 trailer（Trailers-Only 场景）
+				gs := resp.Header.Get("grpc-status")
+				gm := resp.Header.Get("grpc-message")
+				if gs == "" {
+					gs = resp.Trailer.Get("grpc-status")
+				}
+				if gm == "" {
+					gm = resp.Trailer.Get("grpc-message")
+				}
+				kind, detail := classifyUpstreamFailure(gs, gm, string(bodyBytes))
 				if kind == upstreamFailureQuota {
 					isExhausted = true
 					exhaustedDetail = detail
@@ -1182,10 +1331,17 @@ func (p *MitmProxy) jwtRefreshLoop() {
 		case <-ticker.C:
 			p.log("定时刷新 JWT...")
 			p.mu.RLock()
-			keys := make([]string, len(p.poolKeys))
-			copy(keys, p.poolKeys)
+			var keys []string
+			for _, k := range p.poolKeys {
+				if state := p.keyStates[k]; state != nil && state.RuntimeExhausted {
+					continue // 跳过已耗尽的 key，节省 API 调用
+				}
+				keys = append(keys, k)
+			}
 			p.mu.RUnlock()
-			p.prefetchSpecificJWTs(keys, true)
+			if len(keys) > 0 {
+				p.prefetchSpecificJWTs(keys, true)
+			}
 		}
 	}
 }
@@ -1241,7 +1397,11 @@ func classifyUpstreamFailure(grpcStatus, grpcMessage, bodyText string) (upstream
 	bodyLower := strings.ToLower(bodyText)
 	combined := strings.TrimSpace(bodyLower + "\n" + msgLower)
 
+	// gRPC 8=RESOURCE_EXHAUSTED, 9=FAILED_PRECONDITION (Windsurf 额度耗尽常返回 9)
 	if status == "8" || isQuotaExhaustedText(combined) {
+		return upstreamFailureQuota, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if status == "9" && (strings.Contains(combined, "quota") || strings.Contains(combined, "usage") || strings.Contains(combined, "credits")) {
 		return upstreamFailureQuota, formatUpstreamFailureDetail(status, msg, bodyText)
 	}
 	if status == "16" || strings.Contains(combined, "unauthenticated") || strings.Contains(combined, "authentication credentials") {

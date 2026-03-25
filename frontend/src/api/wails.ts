@@ -21,6 +21,8 @@ export const APIInfo = {
   deleteAccount: AppHooks.DeleteAccount,
   deleteExpiredAccounts: AppHooks.DeleteExpiredAccounts,
   deleteFreePlanAccounts: AppHooks.DeleteFreePlanAccounts,
+  deleteAccountsByGroup: AppHooks.DeleteAccountsByGroup,
+  exportAccountsByGroup: AppHooks.ExportAccountsByGroup,
 
   importByEmailPassword: AppHooks.ImportByEmailPassword,
   importByJWT: AppHooks.ImportByJWT,
@@ -29,7 +31,6 @@ export const APIInfo = {
   addSingleAccount: AppHooks.AddSingleAccount,
 
   switchAccount: AppHooks.SwitchAccount,
-  openAccountInIsolatedWindow: AppHooks.OpenAccountInIsolatedWindow,
   autoSwitchToNext: AppHooks.AutoSwitchToNext,
   getCurrentWindsurfAuth: AppHooks.GetCurrentWindsurfAuth,
   getWindsurfAuthPath: AppHooks.GetWindsurfAuthPath,

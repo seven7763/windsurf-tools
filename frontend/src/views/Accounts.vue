@@ -20,7 +20,7 @@ import {
   X,
   CalendarDays,
   Clock,
-  Monitor,
+  Download,
 } from 'lucide-vue-next'
 import { APIInfo } from '../api/wails'
 import { getPlanTone } from '../utils/account'
@@ -51,30 +51,21 @@ const quotaRefreshingId = ref<string | null>(null)
 const switchPlanFilter = ref('all')
 
 const mitmOnly = computed(() => settingsStore.settings?.mitm_only === true)
-const isolatedWindowBlockedByMitm = computed(
-  () => Boolean(mitmStore.status?.running || mitmStore.status?.hosts_mapped),
-)
-const isolatedWindowBlockReason = computed(() => {
-  if (mitmStore.status?.running) {
-    return '当前 MITM 多号轮换正在运行。独立开窗需要固定账号，不能和全局代理轮转同时启用。'
-  }
-  if (mitmStore.status?.hosts_mapped) {
-    return '当前系统 hosts 仍在接管 Windsurf 域名。请先恢复 MITM 环境，再使用独立开窗。'
-  }
-  return '以独立 profile 打开新的 IDE 窗口，并绑定到这个账号'
-})
 
-const poolPlanCounts = computed<Partial<Record<SwitchPlanTone, number>>>(() => {
-  const m: Partial<Record<SwitchPlanTone, number>> = {}
-  for (const t of SWITCH_PLAN_FILTER_TONES) {
-    m[t] = 0
-  }
+// ═══ 单次遍历聚合：避免 tabsList / poolPlanCounts / freePlanAccountCount 各自遍历全量数组 ═══
+const accountAgg = computed(() => {
+  const counts: Partial<Record<SwitchPlanTone, number>> = {}
+  for (const t of SWITCH_PLAN_FILTER_TONES) counts[t] = 0
+  let freeCount = 0
   for (const a of accountStore.accounts) {
     const tone = getPlanTone(a.plan_name) as SwitchPlanTone
-    m[tone] = (m[tone] ?? 0) + 1
+    counts[tone] = (counts[tone] ?? 0) + 1
+    if (tone === 'free') freeCount++
   }
-  return m
+  return { counts, freeCount }
 })
+
+const poolPlanCounts = computed(() => accountAgg.value.counts)
 
 watch(
   () => settingsStore.settings,
@@ -137,45 +128,48 @@ const filteredAccounts = computed(() => {
 })
 
 const tabsList = computed(() => {
-  const groups = new Map<string, number>()
-  for (const k of planSectionOrder) {
-    groups.set(k, 0)
-  }
-  for (const acc of accountStore.accounts) {
-    const tone = getPlanTone(acc.plan_name)
-    groups.set(tone, (groups.get(tone) || 0) + 1)
-  }
-  
+  const c = accountAgg.value.counts
   const tabs = planSectionOrder
-    .filter(k => (groups.get(k) || 0) > 0)
+    .filter(k => (c[k as SwitchPlanTone] ?? 0) > 0)
     .map(key => ({
       key,
       label: planSectionLabels[key] || key,
-      count: groups.get(key) || 0
+      count: c[key as SwitchPlanTone] ?? 0
     }))
-    
   return [{ key: 'all', label: '全部', count: accountStore.accounts.length }, ...tabs]
 })
 
-const freePlanAccountCount = computed(
-  () => accountStore.accounts.filter((a) => getPlanTone(a.plan_name) === 'free').length,
-)
+const freePlanAccountCount = computed(() => accountAgg.value.freeCount)
 
 const accountSort = ref<'group' | 'name' | 'quota'>('group')
+const pageSize = ref(60)
+const currentPage = ref(1)
 
 const displayAccounts = computed(() => {
   const items = [...filteredAccounts.value]
+  const mode = accountSort.value
   
-  if (accountSort.value === 'group') {
+  if (mode === 'group') {
+    // 预计算 planTone → order index，避免 sort comparator 内重复调用 getPlanTone + indexOf
+    const orderMap = new Map<string, number>()
+    for (let i = 0; i < planSectionOrder.length; i++) orderMap.set(planSectionOrder[i], i)
+    const fallback = planSectionOrder.length
+    const toneCache = new Map<string, number>()
+    const getToneIdx = (plan: string) => {
+      let idx = toneCache.get(plan)
+      if (idx === undefined) {
+        idx = orderMap.get(getPlanTone(plan)) ?? fallback
+        toneCache.set(plan, idx)
+      }
+      return idx
+    }
     items.sort((a, b) => {
-      const ia = planSectionOrder.indexOf(getPlanTone(a.plan_name) as any)
-      const ib = planSectionOrder.indexOf(getPlanTone(b.plan_name) as any)
-      if (ia !== ib) return ia - ib
-      return (a.email || '').localeCompare(b.email || '', 'zh-CN')
+      const d = getToneIdx(a.plan_name || '') - getToneIdx(b.plan_name || '')
+      return d !== 0 ? d : (a.email || '').localeCompare(b.email || '', 'zh-CN')
     })
-  } else if (accountSort.value === 'name') {
+  } else if (mode === 'name') {
     items.sort((a, b) => (a.email || '').localeCompare(b.email || '', 'zh-CN'))
-  } else if (accountSort.value === 'quota') {
+  } else if (mode === 'quota') {
     items.sort((a, b) => {
       const pa = parseFloat(String(a.daily_remaining || '').replace('%', '')) || 0
       const pb = parseFloat(String(b.daily_remaining || '').replace('%', '')) || 0
@@ -183,6 +177,32 @@ const displayAccounts = computed(() => {
     })
   }
   return items
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(displayAccounts.value.length / pageSize.value)))
+
+// 筛选/搜索变化时重置到第一页
+watch([activeTab, quickFilter, searchQuery, accountSort], () => { currentPage.value = 1 })
+
+const pagedAccounts = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return displayAccounts.value.slice(start, start + pageSize.value)
+})
+
+const paginationRange = computed(() => {
+  const total = totalPages.value
+  const cur = currentPage.value
+  const maxButtons = 7
+  if (total <= maxButtons) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+  let start = Math.max(1, cur - Math.floor(maxButtons / 2))
+  let end = start + maxButtons - 1
+  if (end > total) {
+    end = total
+    start = end - maxButtons + 1
+  }
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 })
 
 const isCurrentOnline = (acc: models.Account) => {
@@ -279,24 +299,6 @@ const handleAutoNext = async (id: string) => {
   }
 }
 
-const handleOpenIsolatedWindow = async (id: string, email: string) => {
-  if (isolatedWindowBlockedByMitm.value) {
-    showToast(isolatedWindowBlockReason.value, 'warning')
-    return
-  }
-  try {
-    const profileDir = await accountStore.openAccountInIsolatedWindow(id)
-    showToast(`已为 ${email} 打开独立 IDE 窗口。\n独立 profile：${profileDir}`, 'success', 7000)
-  } catch (e: unknown) {
-    const message = String(e)
-    if (message.includes('已经在运行')) {
-      showToast(message, 'warning', 6000)
-      return
-    }
-    showToast(`打开独立窗口失败: ${message}`, 'error')
-  }
-}
-
 const handleDelete = async (id: string) => {
   const ok = await confirmDialog('是否确认移除该账号？', {
     confirmText: '移除',
@@ -368,6 +370,51 @@ const handleRefreshOneQuota = async (id: string, email: string) => {
     showToast(`刷新额度失败: ${String(e)}`, 'error')
   } finally {
     quotaRefreshingId.value = null
+  }
+}
+
+// ═══ 按套餐分组操作 ═══
+const planGroupFilter = ref('')
+
+const PLAN_TONE_LABELS: Record<string, string> = {
+  pro: 'Pro', trial: 'Trial', free: 'Free', team: 'Teams',
+  enterprise: 'Enterprise', max: 'Max', unknown: '未知',
+}
+
+const planGroupCount = computed(() => {
+  if (!planGroupFilter.value) return 0
+  return poolPlanCounts.value[planGroupFilter.value as SwitchPlanTone] ?? 0
+})
+
+const handleDeleteByPlanGroup = async () => {
+  const tone = planGroupFilter.value
+  if (!tone) { showToast('请先选择套餐类型', 'warning'); return }
+  const cnt = planGroupCount.value
+  if (cnt === 0) { showToast(`没有 ${PLAN_TONE_LABELS[tone] ?? tone} 类型的账号`, 'info'); return }
+  const label = PLAN_TONE_LABELS[tone] ?? tone
+  const ok = await confirmDialog(`将永久删除所有「${label}」套餐的 ${cnt} 个账号，不可恢复。`, {
+    confirmText: '删除', cancelText: '取消', destructive: true,
+  })
+  if (!ok) return
+  try {
+    const n = await APIInfo.deleteAccountsByGroup(tone)
+    await accountStore.fetchAccounts(true)
+    planGroupFilter.value = ''
+    showToast(`已删除 ${n} 个「${label}」账号`, 'success')
+  } catch (e: unknown) { showToast(`删除失败: ${String(e)}`, 'error') }
+}
+
+const handleExportByPlanGroup = async () => {
+  const tone = planGroupFilter.value
+  if (!tone) { showToast('请先选择套餐类型', 'warning'); return }
+  const label = PLAN_TONE_LABELS[tone] ?? tone
+  try {
+    const filePath = await APIInfo.exportAccountsByGroup(tone)
+    showToast(`「${label}」的 ${planGroupCount.value} 个账号已导出到：\n${filePath}`, 'success', 6000)
+  } catch (e: unknown) {
+    const msg = String(e)
+    if (msg.includes('已取消')) return
+    showToast(`导出失败: ${msg}`, 'error')
   }
 }
 
@@ -657,7 +704,7 @@ const getPlanAccentClass = (acc: models.Account) => {
             维护 API Key / 凭证供 MITM 代理轮换；运行时见底会优先按代理现场状态标记，不再只看静态额度百分比。
           </template>
           <template v-else>
-            一眼查看账号、到期时间和额度状态；切号与独立窗口都会自动避开已用尽账号。
+            一眼查看账号、到期时间和额度状态；切号时自动避开已用尽账号。
           </template>
         </p>
       </div>
@@ -696,6 +743,38 @@ const getPlanAccentClass = (acc: models.Account) => {
           <UserX class="w-[18px] h-[18px] mr-1.5" stroke-width="2.5" />
           删除免费
         </button>
+
+        <!-- 按套餐分组操作 -->
+        <div class="flex items-center gap-1.5 ml-1 pl-2 border-l border-black/10 dark:border-white/10">
+          <select
+            v-model="planGroupFilter"
+            class="no-drag-region h-[36px] rounded-full bg-black/5 dark:bg-white/10 px-3 pr-7 text-[13px] font-semibold text-ios-text dark:text-ios-textDark outline-none cursor-pointer appearance-none"
+          >
+            <option value="">按套餐操作…</option>
+            <option v-for="tone in SWITCH_PLAN_FILTER_TONES" :key="tone" :value="tone">{{ PLAN_TONE_LABELS[tone] ?? tone }} ({{ poolPlanCounts[tone] ?? 0 }})</option>
+          </select>
+          <template v-if="planGroupFilter">
+            <button
+              type="button"
+              class="no-drag-region flex items-center px-3 py-2 bg-ios-red/10 text-ios-red rounded-full font-semibold text-[12px] ios-btn hover:bg-ios-red/20 transition-colors"
+              :title="`删除所有「${PLAN_TONE_LABELS[planGroupFilter] ?? planGroupFilter}」账号`"
+              @click="handleDeleteByPlanGroup"
+            >
+              <Trash2 class="w-[14px] h-[14px] mr-1" stroke-width="2.5" />
+              删除该组
+            </button>
+            <button
+              type="button"
+              class="no-drag-region flex items-center px-3 py-2 bg-violet-500/10 text-violet-700 dark:text-violet-300 rounded-full font-semibold text-[12px] ios-btn hover:bg-violet-500/20 transition-colors"
+              :title="`导出「${PLAN_TONE_LABELS[planGroupFilter] ?? planGroupFilter}」账号到剪贴板`"
+              @click="handleExportByPlanGroup"
+            >
+              <Download class="w-[14px] h-[14px] mr-1" stroke-width="2.5" />
+              导出该组
+            </button>
+          </template>
+        </div>
+
         <button
           type="button"
           class="no-drag-region flex items-center px-5 py-2.5 bg-gradient-to-b from-[#3b82f6] to-ios-blue text-white rounded-full font-semibold text-[14px] ios-btn shadow-md ring-1 ring-black/5"
@@ -706,29 +785,6 @@ const getPlanAccentClass = (acc: models.Account) => {
         </button>
       </div>
     </div>
-
-    <div
-      v-if="!mitmOnly"
-      class="mb-5 rounded-[18px] border border-violet-500/15 bg-violet-500/[0.07] px-4 py-3.5 text-[13px] font-medium leading-relaxed text-violet-900 dark:text-violet-200 shrink-0"
-    >
-      <div class="flex items-start gap-3">
-        <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-violet-600 shadow-sm dark:bg-black/20 dark:text-violet-300">
-          <Monitor class="h-4 w-4" stroke-width="2.4" />
-        </div>
-        <div class="min-w-0">
-            <div class="text-[13px] font-bold">一个 Windsurf IDE 窗口对应一个账号</div>
-            <div class="mt-1 text-[12px] text-violet-800/80 dark:text-violet-200/80">
-              点击卡片右上角的“独立开窗”，会用独立 <code>user-data-dir</code> 和独立登录态拉起新的 Windsurf 窗口，不会挤掉你当前正在用的 IDE 会话。
-            </div>
-            <div
-              v-if="isolatedWindowBlockedByMitm"
-              class="mt-2 text-[12px] font-semibold text-amber-700 dark:text-amber-300"
-            >
-              当前 MITM 环境仍在生效。要保证“一窗一号”，请先停止 MITM 并恢复环境。
-            </div>
-          </div>
-        </div>
-      </div>
 
     <!-- 顶部计划类型导航条 -->
     <div class="flex items-center gap-2 mb-6 overflow-x-auto no-scrollbar shrink-0 pb-1">
@@ -881,7 +937,7 @@ const getPlanAccentClass = (acc: models.Account) => {
     <div v-else class="pb-10 min-h-0">
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 auto-rows-max">
         <div
-          v-for="acc in displayAccounts"
+          v-for="acc in pagedAccounts"
           :key="acc.id"
           :class="[
             'bg-white dark:bg-[#1C1C1E] rounded-[22px] flex flex-col relative overflow-hidden transition-all duration-300 ease-out hover:shadow-lg hover:-translate-y-0.5',
@@ -913,16 +969,6 @@ const getPlanAccentClass = (acc: models.Account) => {
                   @click="handleSwitch(acc.id)"
                 >
                   <Power class="h-[15px] w-[15px]" stroke-width="2.5" />
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-[30px] shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-bold text-violet-600 shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-black/40 ios-btn"
-                  :disabled="isolatedWindowBlockedByMitm"
-                  :title="isolatedWindowBlockReason"
-                  @click="handleOpenIsolatedWindow(acc.id, acc.email)"
-                >
-                  <Monitor class="h-[15px] w-[15px]" stroke-width="2.5" />
-                  <span>独立开窗</span>
                 </button>
                 <button
                   type="button"
@@ -1054,6 +1100,53 @@ const getPlanAccentClass = (acc: models.Account) => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 分页控件 -->
+      <div
+        v-if="totalPages > 1 || displayAccounts.length > 30"
+        class="mt-6 flex flex-wrap items-center justify-between gap-3"
+      >
+        <div class="text-[12px] text-ios-textSecondary dark:text-ios-textSecondaryDark font-medium">
+          共 {{ displayAccounts.length }} 条，第 {{ currentPage }}/{{ totalPages }} 页
+        </div>
+        <div class="flex items-center gap-2">
+          <select
+            v-model.number="pageSize"
+            class="no-drag-region rounded-lg border border-black/[0.06] bg-black/[0.03] px-2.5 py-1.5 text-[12px] font-medium outline-none dark:border-white/[0.08] dark:bg-white/[0.04]"
+          >
+            <option :value="30">30 / 页</option>
+            <option :value="60">60 / 页</option>
+            <option :value="120">120 / 页</option>
+            <option :value="300">300 / 页</option>
+          </select>
+          <button
+            type="button"
+            class="no-drag-region rounded-lg border border-black/[0.06] bg-white px-3 py-1.5 text-[12px] font-bold transition hover:bg-black/[0.04] disabled:opacity-40 dark:border-white/[0.08] dark:bg-white/[0.06]"
+            :disabled="currentPage <= 1"
+            @click="currentPage = Math.max(1, currentPage - 1)"
+          >
+            上一页
+          </button>
+          <button
+            v-for="p in paginationRange"
+            :key="p"
+            type="button"
+            class="no-drag-region h-8 min-w-[32px] rounded-lg text-[12px] font-bold transition"
+            :class="p === currentPage ? 'bg-ios-blue text-white shadow-sm' : 'border border-black/[0.06] bg-white hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.06]'"
+            @click="currentPage = p"
+          >
+            {{ p }}
+          </button>
+          <button
+            type="button"
+            class="no-drag-region rounded-lg border border-black/[0.06] bg-white px-3 py-1.5 text-[12px] font-bold transition hover:bg-black/[0.04] disabled:opacity-40 dark:border-white/[0.08] dark:bg-white/[0.06]"
+            :disabled="currentPage >= totalPages"
+            @click="currentPage = Math.min(totalPages, currentPage + 1)"
+          >
+            下一页
+          </button>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
+import { AlertTriangle, CheckCircle2, AlertCircle, Info } from 'lucide-vue-next'
 import { toastQueue } from '../../utils/toast'
 </script>
 
@@ -22,17 +22,20 @@ import { toastQueue } from '../../utils/toast'
           v-for="t in toastQueue"
           :key="t.id"
           class="pointer-events-auto flex gap-3 rounded-[18px] border px-4 py-3 shadow-lg backdrop-blur-xl text-[14px] leading-snug"
-          :class="
+          :class="[
             t.kind === 'success'
               ? 'bg-ios-green/12 border-ios-green/25 text-ios-greenDark dark:text-emerald-300'
               : t.kind === 'error'
                 ? 'bg-ios-red/12 border-ios-red/25 text-ios-redDark dark:text-red-300'
-                : 'bg-white/92 dark:bg-[#1c1c1e]/92 border-black/8 dark:border-white/10 text-ios-text dark:text-ios-textDark'
-          "
+                : t.kind === 'warning'
+                  ? 'bg-amber-500/12 border-amber-500/25 text-amber-800 dark:text-amber-300'
+                  : 'bg-white/92 dark:bg-[#1c1c1e]/92 border-black/8 dark:border-white/10 text-ios-text dark:text-ios-textDark',
+          ]"
         >
           <div class="shrink-0 pt-0.5">
             <CheckCircle2 v-if="t.kind === 'success'" class="w-5 h-5" stroke-width="2.2" />
             <AlertCircle v-else-if="t.kind === 'error'" class="w-5 h-5" stroke-width="2.2" />
+            <AlertTriangle v-else-if="t.kind === 'warning'" class="w-5 h-5" stroke-width="2.2" />
             <Info v-else class="w-5 h-5 text-ios-blue" stroke-width="2.2" />
           </div>
           <p class="flex-1 whitespace-pre-line break-words">{{ t.message }}</p>

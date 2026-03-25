@@ -123,25 +123,3 @@ func TestPickNextSwitchableAccount_ReturnsErrorWhenNoCandidateMatches(t *testing
 		t.Fatal("pickNextSwitchableAccount() expected error when nothing matches plan filter")
 	}
 }
-
-func TestIsolatedWindowMitmConflict(t *testing.T) {
-	cases := []struct {
-		name         string
-		proxyRunning bool
-		hostsMapped  bool
-		wantErr      bool
-	}{
-		{name: "clean environment", proxyRunning: false, hostsMapped: false, wantErr: false},
-		{name: "mitm running", proxyRunning: true, hostsMapped: true, wantErr: true},
-		{name: "hosts still hijacked", proxyRunning: false, hostsMapped: true, wantErr: true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := isolatedWindowMitmConflict(tc.proxyRunning, tc.hostsMapped)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("isolatedWindowMitmConflict() error = %v, wantErr %v", err, tc.wantErr)
-			}
-		})
-	}
-}

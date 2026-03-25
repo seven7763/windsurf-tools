@@ -253,7 +253,7 @@ const handleTeardown = async () => {
       >
         <div class="min-w-0">
           <div class="flex items-center gap-2 text-[13px] font-bold text-ios-text dark:text-ios-textDark">
-            <span class="h-2.5 w-2.5 rounded-full shadow-[0_0_10px_rgba(52,211,153,0.45)]" :class="statusTone.dot" />
+            <span class="h-2.5 w-2.5 rounded-full" :class="[statusTone.dot, status?.running ? 'shadow-[0_0_10px_rgba(52,211,153,0.45)]' : '']" />
             {{ statusTone.label }}
           </div>
           <p class="mt-1 text-[12px] leading-relaxed text-ios-textSecondary dark:text-ios-textSecondaryDark">

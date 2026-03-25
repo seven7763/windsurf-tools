@@ -37,6 +37,11 @@ type Settings struct {
 	// MitmDebugDump 开启后，MITM 拦截 GetChatMessage 时将请求/响应的 protobuf 字段树写入 proto_dumps/ 目录
 	MitmDebugDump bool `json:"mitm_debug_dump"`
 
+	// DebugLog 开启后将切号/代理/额度判定等关键日志写入文件 debug.log
+	DebugLog bool `json:"debug_log"`
+	// ImportConcurrency 导入时最大并发数（默认 3）
+	ImportConcurrency int `json:"import_concurrency"`
+
 	// ── OpenAI 中转 ──
 	// OpenAIRelayEnabled 启用本地 OpenAI 兼容 API 中转服务器
 	OpenAIRelayEnabled bool `json:"openai_relay_enabled"`
@@ -65,6 +70,8 @@ func DefaultSettings() Settings {
 		MitmTunMode:                false,
 		MitmProxyEnabled:           false,
 		MitmDebugDump:              false,
+		DebugLog:                   false,
+		ImportConcurrency:          3,
 		OpenAIRelayEnabled:         false,
 		OpenAIRelayPort:            8787,
 		OpenAIRelaySecret:          "",

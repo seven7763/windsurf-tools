@@ -30,12 +30,20 @@ export function DeleteAccount(arg1) {
   return window['go']['main']['App']['DeleteAccount'](arg1);
 }
 
+export function DeleteAccountsByGroup(arg1) {
+  return window['go']['main']['App']['DeleteAccountsByGroup'](arg1);
+}
+
 export function DeleteExpiredAccounts() {
   return window['go']['main']['App']['DeleteExpiredAccounts']();
 }
 
 export function DeleteFreePlanAccounts() {
   return window['go']['main']['App']['DeleteFreePlanAccounts']();
+}
+
+export function ExportAccountsByGroup(arg1) {
+  return window['go']['main']['App']['ExportAccountsByGroup'](arg1);
 }
 
 export function FindWindsurfPath() {
@@ -104,10 +112,6 @@ export function ImportByJWT(arg1) {
 
 export function ImportByRefreshToken(arg1) {
   return window['go']['main']['App']['ImportByRefreshToken'](arg1);
-}
-
-export function OpenAccountInIsolatedWindow(arg1) {
-  return window['go']['main']['App']['OpenAccountInIsolatedWindow'](arg1);
 }
 
 export function RefreshAccountQuota(arg1) {

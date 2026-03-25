@@ -78,7 +78,7 @@ func (s *Store) saveAccounts() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.accountsFile, b, 0644)
+	return atomicWriteFile(s.accountsFile, b)
 }
 
 func (s *Store) saveSettings() error {
@@ -86,7 +86,22 @@ func (s *Store) saveSettings() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.settingsFile, b, 0644)
+	return atomicWriteFile(s.settingsFile, b)
+}
+
+// atomicWriteFile 原子写入：先写临时文件再 rename，防止进程崩溃时损坏 JSON。
+// rename 失败时回退到直接写入（Windows 下跨卷 rename 可能失败）。
+func atomicWriteFile(filePath string, data []byte) error {
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		// tmp 写入失败，直接写目标文件
+		return os.WriteFile(filePath, data, 0644)
+	}
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return os.WriteFile(filePath, data, 0644)
+	}
+	return nil
 }
 
 // ── Account Operations ──
@@ -109,6 +124,45 @@ func (s *Store) GetAllAccounts() []models.Account {
 	copied := make([]models.Account, len(s.accounts))
 	copy(copied, s.accounts)
 	return copied
+}
+
+// AccountCount 返回号池总数（轻量，不拷贝切片）。
+func (s *Store) AccountCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.accounts)
+}
+
+// AddAccountsBatch 批量添加账号，仅在所有写入完成后执行一次持久化；返回每条记录的错误（nil 表示成功）。
+func (s *Store) AddAccountsBatch(accs []models.Account) []error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	errs := make([]error, len(accs))
+	added := false
+	for i, acc := range accs {
+		dup := false
+		for j := range s.accounts {
+			if AccountsConflict(s.accounts[j], acc) {
+				errs[i] = fmt.Errorf("账号已存在，不可重复导入")
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			s.accounts = append(s.accounts, acc)
+			added = true
+		}
+	}
+	if added {
+		if err := s.saveAccounts(); err != nil {
+			for i := range errs {
+				if errs[i] == nil {
+					errs[i] = err
+				}
+			}
+		}
+	}
+	return errs
 }
 
 // GetAccount 返回账号值的拷贝，避免调用方持有指向内部切片的指针导致数据竞争。
