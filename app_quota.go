@@ -268,7 +268,7 @@ func (a *App) pollCurrentSessionQuotaAndMaybeSwitch() {
 		}
 		return
 	}
-	if next, err := a.AutoSwitchToNext(curID, settings.AutoSwitchPlanFilter); err != nil {
+	if next, err := a.autoSwitchToNext(curID, settings.AutoSwitchPlanFilter); err != nil {
 		utils.DLog("[热轮询] AutoSwitchToNext 失败: %v", err)
 		return
 	} else {
@@ -396,7 +396,7 @@ func (a *App) refreshDueQuotas() {
 			_, _ = a.rotateMitmToNextAvailable(switchAfterUnlock.currentID, switchAfterUnlock.planFilter)
 			return
 		}
-		_, _ = a.AutoSwitchToNext(switchAfterUnlock.currentID, switchAfterUnlock.planFilter)
+		_, _ = a.autoSwitchToNext(switchAfterUnlock.currentID, switchAfterUnlock.planFilter)
 	}
 }
 

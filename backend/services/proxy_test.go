@@ -23,6 +23,55 @@ func TestSetPoolKeysPreservesCurrentKey(t *testing.T) {
 	}
 }
 
+func TestSwitchToKeyClearsRuntimeExhaustedState(t *testing.T) {
+	proxy := NewMitmProxy(nil, nil, "")
+	proxy.SetPoolKeys([]string{"sk-ws-a", "sk-ws-b"})
+
+	state := proxy.keyStates["sk-ws-b"]
+	if state == nil {
+		t.Fatal("state for sk-ws-b = nil")
+	}
+	state.Healthy = false
+	state.RuntimeExhausted = true
+	state.CooldownUntil = time.Now().Add(10 * time.Minute)
+	state.ConsecutiveErrs = 2
+
+	if ok := proxy.SwitchToKey("sk-ws-b"); !ok {
+		t.Fatal("SwitchToKey() = false, want true")
+	}
+
+	if got := proxy.CurrentAPIKey(); got != "sk-ws-b" {
+		t.Fatalf("CurrentAPIKey() = %q, want %q", got, "sk-ws-b")
+	}
+	if !state.Healthy {
+		t.Fatal("Healthy = false, want true")
+	}
+	if state.RuntimeExhausted {
+		t.Fatal("RuntimeExhausted = true, want false")
+	}
+	if !state.CooldownUntil.IsZero() {
+		t.Fatalf("CooldownUntil = %v, want zero", state.CooldownUntil)
+	}
+	if state.ConsecutiveErrs != 0 {
+		t.Fatalf("ConsecutiveErrs = %d, want 0", state.ConsecutiveErrs)
+	}
+}
+
+func TestSwitchToNextAdvancesCurrentKey(t *testing.T) {
+	proxy := NewMitmProxy(nil, nil, "")
+	proxy.SetPoolKeys([]string{"sk-ws-a", "sk-ws-b", "sk-ws-c"})
+	if ok := proxy.SwitchToKey("sk-ws-a"); !ok {
+		t.Fatal("SwitchToKey() = false, want true")
+	}
+
+	if got := proxy.SwitchToNext(); got != "sk-ws-b" {
+		t.Fatalf("SwitchToNext() = %q, want %q", got, "sk-ws-b")
+	}
+	if got := proxy.CurrentAPIKey(); got != "sk-ws-b" {
+		t.Fatalf("CurrentAPIKey() = %q, want %q", got, "sk-ws-b")
+	}
+}
+
 func TestPrefetchJWTsOnlyPrefetchesCurrentKey(t *testing.T) {
 	originalGetJWT := getJWTByAPIKeyFn
 	t.Cleanup(func() {

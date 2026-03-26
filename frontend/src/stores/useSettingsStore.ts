@@ -9,22 +9,30 @@ import {
   normalizeSwitchPlanFilter,
   settingsToForm,
 } from '../utils/settingsModel'
+import { PURE_MITM_ONLY } from '../utils/appMode'
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<models.Settings | null>(null)
   const isLoading = ref(true)
+  const isRefreshing = ref(false)
+  const hasLoadedOnce = ref(false)
   let fetchInFlight: Promise<void> | null = null
   let lastFetchedAt = 0
 
   const fetchSettings = async (force = false) => {
     const now = Date.now()
-    if (!force && fetchInFlight) {
+    if (fetchInFlight) {
       return fetchInFlight
     }
     if (!force && settings.value && now-lastFetchedAt < 2500) {
       return
     }
-    isLoading.value = true
+    const blocking = !hasLoadedOnce.value || settings.value == null
+    if (blocking) {
+      isLoading.value = true
+    } else {
+      isRefreshing.value = true
+    }
     fetchInFlight = (async () => {
       try {
         const data = await APIInfo.getSettings()
@@ -34,7 +42,12 @@ export const useSettingsStore = defineStore('settings', () => {
         settings.value = createDefaultSettings()
       } finally {
         lastFetchedAt = Date.now()
-        isLoading.value = false
+        hasLoadedOnce.value = true
+        if (blocking) {
+          isLoading.value = false
+        } else {
+          isRefreshing.value = false
+        }
         fetchInFlight = null
       }
     })()
@@ -44,6 +57,22 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateSettings = async (payload: models.Settings) => {
     await APIInfo.updateSettings(payload)
     settings.value = normalizeSettings(payload)
+  }
+
+  const ensurePureMitm = async () => {
+    if (!PURE_MITM_ONLY) {
+      return
+    }
+    const current = normalizeSettings(settings.value ?? createDefaultSettings())
+    if (current.mitm_only === true) {
+      settings.value = current
+      return
+    }
+    const next = new models.Settings({
+      ...current,
+      mitm_only: true,
+    })
+    await updateSettings(next)
   }
 
   /** 仅更新「无感下一席位」计划筛选并写回设置文件 */
@@ -57,8 +86,11 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     settings,
     isLoading,
+    isRefreshing,
+    hasLoadedOnce,
     fetchSettings,
     updateSettings,
+    ensurePureMitm,
     saveAutoSwitchPlanFilter,
   }
 })

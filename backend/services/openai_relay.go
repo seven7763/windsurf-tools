@@ -237,7 +237,7 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 	stream := chatReq.Stream != nil && *chatReq.Stream
 
 	// 从账号池拿 key + JWT（支持额度耗尽 / 认证失败自动轮转重试）
-	var respBody io.ReadCloser
+	var upstreamResp *http.Response
 	var usedKey string
 	for attempt := 0; attempt <= r.maxRetry; attempt++ {
 		apiKey, jwtBytes := r.proxy.pickPoolKeyAndJWT()
@@ -255,7 +255,7 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 		protoBody := BuildChatRequest(chatReq.Messages, apiKey, jwtStr, "")
 		grpcPayload := WrapGRPCEnvelope(protoBody)
 
-		body, kind, err := r.sendGRPC(grpcPayload, apiKey, jwtStr)
+		resp, kind, err := r.sendGRPC(grpcPayload, apiKey, jwtStr)
 		if err != nil {
 			if kind == upstreamFailureQuota {
 				r.log("额度耗尽 key=%s... 自动轮转重试(%d/%d)", truncKey(apiKey), attempt+1, r.maxRetry)
@@ -276,14 +276,14 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 			writeOpenAIError(w, 502, "upstream_error", err.Error())
 			return
 		}
-		respBody = body
+		upstreamResp = resp
 		break
 	}
-	if respBody == nil {
+	if upstreamResp == nil {
 		writeOpenAIError(w, 503, "all_exhausted", "All accounts in pool are exhausted")
 		return
 	}
-	defer respBody.Close()
+	defer upstreamResp.Body.Close()
 
 	chatID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 	model := chatReq.Model
@@ -291,20 +291,14 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 		model = "cascade"
 	}
 
+	var finalKind upstreamFailureKind
+	var finalDetail string
 	if stream {
-		r.streamResponse(w, respBody, chatID, model)
+		finalKind, finalDetail = r.streamResponse(w, upstreamResp, chatID, model)
 	} else {
-		r.blockingResponse(w, respBody, chatID, model)
+		finalKind, finalDetail = r.blockingResponse(w, upstreamResp, chatID, model)
 	}
-
-	// 请求成功：更新号池状态 + 触发额度刷新
-	r.proxy.RecordKeySuccess(usedKey)
-	r.mu.RLock()
-	cb := r.onSuccess
-	r.mu.RUnlock()
-	if cb != nil {
-		go cb(usedKey)
-	}
+	r.finalizeRelayOutcome(usedKey, finalKind, finalDetail)
 }
 
 // buildUpstreamTransport 构建持久化 transport（与 MITM 上游一致，http.Transport + ForceAttemptHTTP2）
@@ -335,9 +329,9 @@ func (r *OpenAIRelay) buildUpstreamTransport() http.RoundTripper {
 	return t
 }
 
-// sendGRPC 向 Windsurf 上游发送 gRPC 请求，返回响应 body 与失败分类。
+// sendGRPC 向 Windsurf 上游发送 gRPC 请求，返回完整响应与失败分类。
 // 同时检测 gRPC Trailers-Only 模式（HTTP 200 但 grpc-status 头非零）。
-func (r *OpenAIRelay) sendGRPC(payload []byte, apiKey, jwt string) (io.ReadCloser, upstreamFailureKind, error) {
+func (r *OpenAIRelay) sendGRPC(payload []byte, apiKey, jwt string) (*http.Response, upstreamFailureKind, error) {
 	upIP := ResolveUpstreamIP()
 	grpcURL := fmt.Sprintf("https://%s/exa.api_server_pb.ApiServerService/GetChatMessage", upIP)
 	httpReq, err := http.NewRequest("POST", grpcURL, bytes.NewReader(payload))
@@ -380,15 +374,16 @@ func (r *OpenAIRelay) sendGRPC(payload []byte, apiKey, jwt string) (io.ReadClose
 		return nil, kind, fmt.Errorf("%s", detail)
 	}
 	r.log("sendGRPC ok: proto=%s status=%d", resp.Proto, resp.StatusCode)
-	return resp.Body, upstreamFailureNone, nil
+	return resp, upstreamFailureNone, nil
 }
 
-// streamResponse 将 gRPC 流式响应转为 SSE
-func (r *OpenAIRelay) streamResponse(w http.ResponseWriter, body io.ReadCloser, chatID, model string) {
+// streamResponse 将 gRPC 流式响应转为 SSE。
+// 返回值用于调用方判断这次流是正常完成，还是在流尾 / trailer 处以 quota/auth/grpc 失败收尾。
+func (r *OpenAIRelay) streamResponse(w http.ResponseWriter, resp *http.Response, chatID, model string) (upstreamFailureKind, string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeOpenAIError(w, 500, "internal", "streaming not supported")
-		return
+		return upstreamFailureGRPC, "streaming not supported"
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -396,8 +391,10 @@ func (r *OpenAIRelay) streamResponse(w http.ResponseWriter, body io.ReadCloser, 
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(200)
 
+	body := resp.Body
 	reader := bufio.NewReaderSize(body, 32768)
 	buf := make([]byte, 0, 65536)
+	sawTerminalFrame := false
 
 	for {
 		tmp := make([]byte, 8192)
@@ -417,16 +414,15 @@ func (r *OpenAIRelay) streamResponse(w http.ResponseWriter, body io.ReadCloser, 
 			framePayload := append([]byte(nil), buf[5:totalLen]...)
 			buf = buf[totalLen:]
 
-			if flags&streamEnvelopeEndStream != 0 {
-				chunk := buildSSEChunk(chatID, model, "", true)
-				fmt.Fprintf(w, "data: %s\n\n", chunk)
-				fmt.Fprintf(w, "data: [DONE]\n\n")
-				flusher.Flush()
-				return
-			}
-
 			decodedPayload, err := decodeStreamEnvelopePayload(flags, framePayload)
 			if err != nil {
+				continue
+			}
+			if flags&streamEnvelopeEndStream != 0 {
+				if kind, detail := classifyUpstreamFailure("", "", string(decodedPayload)); kind != upstreamFailureNone {
+					return kind, detail
+				}
+				sawTerminalFrame = true
 				continue
 			}
 
@@ -440,29 +436,42 @@ func (r *OpenAIRelay) streamResponse(w http.ResponseWriter, body io.ReadCloser, 
 				flusher.Flush()
 			}
 			if isDone {
-				chunk := buildSSEChunk(chatID, model, "", true)
-				fmt.Fprintf(w, "data: %s\n\n", chunk)
-				fmt.Fprintf(w, "data: [DONE]\n\n")
-				flusher.Flush()
-				return
+				sawTerminalFrame = true
 			}
 		}
 
 		if readErr != nil {
-			// 流结束
+			if readErr != io.EOF {
+				return upstreamFailureGRPC, readErr.Error()
+			}
+			if len(buf) > 0 {
+				return upstreamFailureGRPC, "stream ended with incomplete grpc frame"
+			}
+			if kind, detail := classifyUpstreamFailure(resp.Trailer.Get("grpc-status"), resp.Trailer.Get("grpc-message"), ""); kind != upstreamFailureNone {
+				return kind, detail
+			}
+			// 正常结束时才向 OpenAI SSE 客户端发 stop + [DONE]。
+			// 这样 quota/auth/trailer 失败不会再伪装成一次成功完成的响应。
+			_ = sawTerminalFrame // EOF without trailer failure也按正常结束处理，避免客户端悬挂。
+			chunk := buildSSEChunk(chatID, model, "", true)
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			fmt.Fprintf(w, "data: [DONE]\n\n")
 			flusher.Flush()
-			return
+			return upstreamFailureNone, ""
 		}
 	}
 }
 
 // blockingResponse 收集所有响应后一次性返回
-func (r *OpenAIRelay) blockingResponse(w http.ResponseWriter, body io.ReadCloser, chatID, model string) {
-	data, err := io.ReadAll(body)
+func (r *OpenAIRelay) blockingResponse(w http.ResponseWriter, resp *http.Response, chatID, model string) (upstreamFailureKind, string) {
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		writeOpenAIError(w, 502, "upstream_error", err.Error())
-		return
+		return upstreamFailureGRPC, err.Error()
+	}
+	if kind, detail := classifyUpstreamFailure(resp.Trailer.Get("grpc-status"), resp.Trailer.Get("grpc-message"), string(data)); kind != upstreamFailureNone {
+		writeRelayUpstreamFailure(w, kind, detail)
+		return kind, detail
 	}
 
 	frames := ExtractGRPCFrames(data)
@@ -472,7 +481,7 @@ func (r *OpenAIRelay) blockingResponse(w http.ResponseWriter, body io.ReadCloser
 		fullText.WriteString(text)
 	}
 
-	resp := map[string]interface{}{
+	reply := map[string]interface{}{
 		"id":      chatID,
 		"object":  "chat.completion",
 		"created": time.Now().Unix(),
@@ -488,7 +497,8 @@ func (r *OpenAIRelay) blockingResponse(w http.ResponseWriter, body io.ReadCloser
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(reply)
+	return upstreamFailureNone, ""
 }
 
 // ── 辅助 ──
@@ -526,6 +536,56 @@ func writeOpenAIError(w http.ResponseWriter, status int, errType, msg string) {
 		},
 	}
 	json.NewEncoder(w).Encode(resp)
+}
+
+func writeRelayUpstreamFailure(w http.ResponseWriter, kind upstreamFailureKind, detail string) {
+	status := 502
+	errType := "upstream_error"
+	switch kind {
+	case upstreamFailureQuota:
+		status = 429
+		errType = "quota_exhausted"
+	case upstreamFailureAuth:
+		status = 401
+		errType = "authentication_error"
+	case upstreamFailurePermission:
+		status = 403
+		errType = "permission_denied"
+	}
+	if strings.TrimSpace(detail) == "" {
+		detail = "upstream request failed"
+	}
+	writeOpenAIError(w, status, errType, detail)
+}
+
+func (r *OpenAIRelay) finalizeRelayOutcome(apiKey string, kind upstreamFailureKind, detail string) {
+	if strings.TrimSpace(apiKey) == "" {
+		return
+	}
+	if kind == upstreamFailureNone {
+		r.proxy.RecordKeySuccess(apiKey)
+		r.mu.RLock()
+		cb := r.onSuccess
+		r.mu.RUnlock()
+		if cb != nil {
+			go cb(apiKey)
+		}
+		return
+	}
+
+	detail = strings.TrimSpace(detail)
+	switch kind {
+	case upstreamFailureQuota:
+		r.log("relay 结束为额度失败: key=%s... detail=%s", truncKey(apiKey), truncate(detail, 180))
+		r.proxy.markRuntimeExhaustedAndRotate(apiKey, "relay-finished="+detail)
+	case upstreamFailureAuth:
+		r.log("relay 结束为认证失败: key=%s... detail=%s", truncKey(apiKey), truncate(detail, 180))
+		if len(r.proxy.refreshJWTForKey(apiKey)) == 0 {
+			r.proxy.markRuntimeExhaustedAndRotate(apiKey, "relay-auth="+detail)
+		}
+	default:
+		r.log("relay 结束为上游失败: key=%s... kind=%s detail=%s", truncKey(apiKey), kind, truncate(detail, 180))
+	}
 }
 
 func truncKey(key string) string {

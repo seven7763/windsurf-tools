@@ -1,6 +1,6 @@
 # Windsurf Tools
 
-基于 [Wails v2](https://wails.io/)（Go + Vue 3）的桌面应用，用于管理 **Windsurf 账号池、多账号额度同步、凭证刷新、MITM 无感换号** 与本地 `windsurf_auth` 补充切号流程。
+基于 [Wails v2](https://wails.io/)（Go + Vue 3）的桌面应用，当前前端产品形态已经收口为 **纯 MITM 工作流**，用于管理 **Windsurf MITM 号池、多账号额度同步、凭证刷新、MITM 无感换号** 与 **OpenAI Relay**。
 
 **GitHub 仓库：** [shaoyu521/windsurf-Tools](https://github.com/shaoyu521/windsurf-Tools)
 
@@ -12,7 +12,7 @@
 
 | 文件 | 平台 | 说明 |
 |------|------|------|
-| `windsurf-tools-wails.exe` | Windows amd64 | 单文件，可直接运行 |
+| `windsurf-tools-wails.exe` | Windows amd64 | 单文件，启动时默认请求管理员权限 |
 | `windsurf-tools-wails-windows-amd64.zip` | Windows amd64 | Windows 单文件压缩包 |
 | `windsurf-tools-wails-macos-intel-amd64.zip` | macOS Intel | 打包后的 `.app` 压缩包 |
 | `windsurf-tools-wails-macos-apple-silicon-arm64.zip` | macOS Apple Silicon | 打包后的 `.app` 压缩包 |
@@ -21,6 +21,8 @@
 > macOS 发布包当前为 **未签名** 构建，首次打开可能需要在系统设置中允许应用运行。
 >
 > 为了保证 Intel / Apple Silicon 双架构发布稳定，当前 macOS 包默认关闭系统托盘集成；账号池、MITM、额度同步、桌面工具栏与单实例逻辑均可正常使用。
+>
+> Windows 包当前默认以管理员权限启动，便于直接完成 Hosts、CA 证书、系统服务与代理相关操作。
 
 ---
 
@@ -37,9 +39,9 @@
 ## 主要功能
 
 - **账号池管理**：支持批量导入邮箱密码、Refresh Token、API Key、JWT；支持搜索、计划分组、快速删除免费账号和清理过期账号。
-- **MITM 无感换号**：通过 Hosts 劫持 + 本地 TLS MITM + JWT 替换 + API Key 轮换实现主路径无感切号，尽量避免频繁改写 `windsurf_auth`。
-- **本地 `windsurf_auth` 切号补充路径**：保留手动切号、下一席位切号、额度用尽自动切号等写文件方案，并支持切号后自动重启 IDE。
-- **统一到期时间与额度展示**：账号卡片聚焦账号、邮箱、到期时间、额度状态，首页计划分布与账号池统计口径一致。
+- **纯 MITM 无感换号**：通过 Hosts 劫持 + 本地 TLS MITM + JWT 替换 + API Key 轮换实现主路径无感切号，当前前端默认不再暴露本地 auth 文件切号流程。
+- **OpenAI Relay**：本地提供 OpenAI 兼容 API 入口，直接复用 MITM 号池和轮换逻辑。
+- **统一到期时间与额度展示**：账号卡片聚焦账号、邮箱、到期时间、额度状态，围绕纯 MITM 号池的可用性展示当前活跃状态与运行时见底信息。
 - **托盘与桌面工具栏**：支持关闭隐藏到托盘、静默启动、桌面小工具栏模式。
 - **单实例运行**：重复打开应用时不再堆多个窗口，而是激活已有实例。
 - **退出自动恢复环境**：当未开启“关闭时隐藏至系统托盘”时，点击关闭会真正退出，并自动恢复 MITM 涉及的 `hosts / ProxyOverride / Codeium 配置 / CA`。
@@ -54,6 +56,7 @@
 - Windows 10 / 11
 - `amd64`
 - 需要 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+- 启动时默认请求管理员权限，用于管理 Hosts、证书、服务与代理环境
 
 ### macOS
 

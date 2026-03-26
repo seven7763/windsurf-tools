@@ -91,7 +91,24 @@ func uniqueCandidatePaths(paths []string) []string {
 	return out
 }
 
-// resolveAuthPath 优先返回已存在的 auth 文件路径，否则返回首选写入路径（与旧版行为一致：~/.codeium/...）。
+func preferredAuthWritePathFor(goos string, cands []string) string {
+	if len(cands) == 0 {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "linux":
+		for _, p := range cands {
+			normalized := strings.ToLower(filepath.ToSlash(strings.TrimSpace(p)))
+			if strings.Contains(normalized, "/windsurf/user/globalstorage/windsurf_auth.json") {
+				return p
+			}
+		}
+	}
+	return cands[0]
+}
+
+// resolveAuthPath 优先返回已存在的 auth 文件路径，否则返回首选写入路径。
+// Linux/Kali 首次安装更偏向 Windsurf 的 globalStorage 位置，避免写回旧的 ~/.codeium 路径。
 func (s *SwitchService) resolveAuthPath() (string, error) {
 	cands := s.windsurfAuthPathCandidates()
 	if len(cands) == 0 {
@@ -102,7 +119,7 @@ func (s *SwitchService) resolveAuthPath() (string, error) {
 			return p, nil
 		}
 	}
-	return cands[0], nil
+	return preferredAuthWritePathFor(runtime.GOOS, cands), nil
 }
 
 // GetWindsurfAuthPath 返回当前用于读写的 windsurf_auth.json 路径（与 GetCurrentAuth / SwitchAccount 一致）。

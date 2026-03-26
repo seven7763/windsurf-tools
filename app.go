@@ -81,7 +81,7 @@ func (a *App) initBackend() error {
 					utils.DLog("[回调] onKeyExhausted: MITM轮换成功 → %s", next.Email)
 				}
 			} else {
-				if next, err := a.AutoSwitchToNext(accID, s.AutoSwitchPlanFilter); err != nil {
+				if next, err := a.autoSwitchToNext(accID, s.AutoSwitchPlanFilter); err != nil {
 					utils.DLog("[回调] onKeyExhausted: AutoSwitchToNext失败: %v", err)
 				} else {
 					utils.DLog("[回调] onKeyExhausted: AutoSwitchToNext成功 → %s", next)

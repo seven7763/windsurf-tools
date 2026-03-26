@@ -1,46 +1,44 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Moon, Monitor, Sun } from 'lucide-vue-next'
-import { useSettingsStore } from '../../stores/useSettingsStore'
-import { useSystemStore } from '../../stores/useSystemStore'
+import { Moon, Monitor, RadioTower, ShieldCheck, Sun } from 'lucide-vue-next'
+import { useMitmStatusStore } from '../../stores/useMitmStatusStore'
 import { APP_VERSION } from '../../utils/appMeta'
+import { APP_PRODUCT_NAME, APP_PRODUCT_TAGLINE } from '../../utils/appMode'
 import { cycleTheme, themeLabel, themeMode } from '../../utils/theme'
 
-const settingsStore = useSettingsStore()
-const systemStore = useSystemStore()
+const mitmStore = useMitmStatusStore()
 
-const modeLabel = computed(() =>
-  settingsStore.settings?.mitm_only === true ? 'MITM 轮换' : 'Auth 切号',
-)
+const modeLabel = computed(() => 'Pure MITM')
+const activeKey = computed(() => mitmStore.status?.pool_status?.find((item) => item.is_current) ?? null)
+const poolCount = computed(() => mitmStore.status?.pool_status?.length ?? 0)
+const healthyCount = computed(() => mitmStore.status?.pool_status?.filter((item) => item.healthy).length ?? 0)
 
 const onlineEmail = computed(() => {
-  const email = (systemStore.currentAuthEmail || '').trim()
-  if (!email) {
-    return '未检测到在线账号'
+  const key = String(activeKey.value?.key_short || '').trim()
+  if (!key) {
+    return mitmStore.status?.running ? '等待活跃 Key' : 'MITM 未启动'
   }
-  return email.length > 28 ? `${email.slice(0, 26)}…` : email
+  return key.length > 28 ? `${key.slice(0, 26)}…` : key
 })
 
-const onlineEmailFull = computed(() => (systemStore.currentAuthEmail || '').trim())
+const onlineEmailFull = computed(() => String(activeKey.value?.key_short || '').trim())
 
 const onlineSummary = computed(() => {
-  const email = onlineEmailFull.value
-  if (!email) {
-    return '等待号池或当前会话同步'
+  if (!mitmStore.status?.running) {
+    return '启动后将从 MITM 号池轮换'
   }
-  const [local, domain] = email.split('@')
-  if (!local || !domain) {
-    return '当前会话已连接'
+  if (!onlineEmailFull.value) {
+    return `健康 ${healthyCount.value} / ${poolCount.value}`
   }
-  return `${local.length > 16 ? `${local.slice(0, 14)}…` : local} @ ${domain}`
+  return `健康 ${healthyCount.value} / ${poolCount.value}`
 })
 
 const sessionStateLabel = computed(() =>
-  onlineEmailFull.value ? '当前在线账号' : '会话未检测',
+  onlineEmailFull.value ? '当前活跃 Key' : 'MITM 状态',
 )
 
 const sessionStateTone = computed(() =>
-  onlineEmailFull.value
+  mitmStore.status?.running
     ? 'border-emerald-500/18 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300'
     : 'border-black/[0.06] bg-black/[0.03] text-ios-textSecondary dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-ios-textSecondaryDark',
 )
@@ -52,12 +50,12 @@ const sessionStateTone = computed(() =>
   >
     <div class="flex min-w-0 items-center gap-3">
       <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-ios-blue to-sky-400 text-white shadow-[0_10px_22px_rgba(37,99,235,0.24)]">
-        <span class="text-[15px] font-black tracking-tight">W</span>
+        <ShieldCheck class="h-[18px] w-[18px]" stroke-width="2.6" />
       </div>
       <div class="min-w-0">
         <div class="flex min-w-0 items-center gap-2">
           <span class="truncate text-[16px] font-semibold tracking-tight text-ios-text dark:text-ios-textDark">
-            Windsurf Tools
+            {{ APP_PRODUCT_NAME }}
           </span>
           <span class="hidden rounded-full bg-ios-blue/10 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-ios-blue md:inline-flex">
             {{ modeLabel }}
@@ -65,11 +63,11 @@ const sessionStateTone = computed(() =>
         </div>
         <div class="mt-0.5 flex min-w-0 items-center gap-2 text-ios-textSecondary dark:text-ios-textSecondaryDark">
           <span class="text-[10px] font-medium tracking-wide tabular-nums">
-            Control Deck · v{{ APP_VERSION }}
+            MITM Control · v{{ APP_VERSION }}
           </span>
           <span class="hidden h-1 w-1 rounded-full bg-black/20 dark:bg-white/20 md:block" />
           <span class="hidden truncate text-[11px] font-medium md:block">
-            多账号额度同步与切号控制台
+            {{ APP_PRODUCT_TAGLINE }}
           </span>
         </div>
       </div>
@@ -82,12 +80,9 @@ const sessionStateTone = computed(() =>
       >
         <div
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl"
-          :class="onlineEmailFull ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300' : 'bg-black/[0.05] text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark'"
+          :class="mitmStore.status?.running ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300' : 'bg-black/[0.05] text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark'"
         >
-          <span
-            class="h-2.5 w-2.5 rounded-full shadow-[0_0_10px_rgba(52,211,153,0.35)]"
-            :class="onlineEmailFull ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-500'"
-          />
+          <RadioTower class="h-4 w-4" stroke-width="2.4" />
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
@@ -101,7 +96,7 @@ const sessionStateTone = computed(() =>
         </div>
         <span
           class="hidden shrink-0 rounded-full px-2 py-1 text-[10px] font-bold tracking-wide xl:inline-flex"
-          :class="onlineEmailFull ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-black/[0.05] text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark'"
+          :class="mitmStore.status?.running ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-black/[0.05] text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark'"
           :title="onlineEmailFull || onlineSummary"
         >
           {{ onlineSummary }}
@@ -114,7 +109,7 @@ const sessionStateTone = computed(() =>
       >
         <span
           class="h-2 w-2 shrink-0 rounded-full"
-          :class="onlineEmailFull ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-500'"
+          :class="mitmStore.status?.running ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-500'"
         />
         <span class="truncate">{{ onlineEmail }}</span>
       </div>

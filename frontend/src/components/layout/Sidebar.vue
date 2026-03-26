@@ -1,37 +1,33 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Globe, LayoutDashboard, Users, Settings } from 'lucide-vue-next'
+import { Globe, LayoutDashboard, Settings, Shield, Users } from 'lucide-vue-next'
 import { useAccountStore } from '../../stores/useAccountStore'
-import { useSettingsStore } from '../../stores/useSettingsStore'
-import { useSystemStore } from '../../stores/useSystemStore'
+import { useMitmStatusStore } from '../../stores/useMitmStatusStore'
+import { PRIMARY_POOL_LABEL, type ShellViewTab } from '../../utils/appMode'
 
-const props = defineProps<{ activeTab: string }>()
-const emit = defineEmits<{ (e: 'update:activeTab', tab: string): void }>()
+const props = defineProps<{ activeTab: ShellViewTab }>()
+const emit = defineEmits<{ (e: 'update:activeTab', tab: ShellViewTab): void }>()
 
 const accountStore = useAccountStore()
-const settingsStore = useSettingsStore()
-const systemStore = useSystemStore()
+const mitmStore = useMitmStatusStore()
 
-const menuItems = computed(() => {
-  const mitm = settingsStore.settings?.mitm_only === true
-  return [
-    { id: 'Dashboard', icon: LayoutDashboard, label: '总览' },
-    { id: 'Accounts', icon: Users, label: mitm ? '号池 (MITM)' : '账号池' },
-    { id: 'Relay', icon: Globe, label: 'API 中转' },
-    { id: 'Settings', icon: Settings, label: '设置' },
-  ]
-})
+const menuItems = [
+  { id: 'Dashboard', icon: LayoutDashboard, label: '总览' },
+  { id: 'Accounts', icon: Users, label: PRIMARY_POOL_LABEL },
+  { id: 'Relay', icon: Globe, label: 'OpenAI Relay' },
+  { id: 'Settings', icon: Settings, label: 'MITM 设置' },
+] satisfies Array<{ id: ShellViewTab; icon: typeof Users; label: string }>
 
-const footerModeLabel = computed(() =>
-  settingsStore.settings?.mitm_only === true ? 'MITM 多号轮换' : '本地 Auth 切号',
-)
+const footerModeLabel = computed(() => 'Pure MITM')
 
-const onlineSummary = computed(() => {
-  const email = (systemStore.currentAuthEmail || '').trim()
-  if (!email) {
-    return '未检测到在线账号'
+const activeKey = computed(() => mitmStore.status?.pool_status?.find((item) => item.is_current) ?? null)
+
+const activeSummary = computed(() => {
+  const key = String(activeKey.value?.key_short || '').trim()
+  if (!key) {
+    return '等待活跃 Key'
   }
-  return email.length > 22 ? `${email.slice(0, 20)}…` : email
+  return key
 })
 </script>
 
@@ -61,7 +57,7 @@ const onlineSummary = computed(() => {
 
     <div class="mx-3 mt-4 rounded-[18px] border border-black/[0.05] bg-white/60 px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:border-white/[0.06] dark:bg-white/[0.04]">
       <div class="text-[11px] font-bold uppercase tracking-[0.22em] text-ios-textSecondary dark:text-ios-textSecondaryDark">
-        实时概况
+        MITM 概况
       </div>
       <div class="mt-3 flex items-center justify-between">
         <div>
@@ -69,7 +65,7 @@ const onlineSummary = computed(() => {
             {{ accountStore.accounts.length }}
           </div>
           <div class="mt-1 text-[11px] font-medium text-ios-textSecondary dark:text-ios-textSecondaryDark">
-            账号总数
+            号池总数
           </div>
         </div>
         <span class="rounded-full bg-ios-blue/10 px-2.5 py-1 text-[10px] font-bold tracking-wide text-ios-blue">
@@ -77,10 +73,14 @@ const onlineSummary = computed(() => {
         </span>
       </div>
       <div class="mt-3 rounded-[14px] bg-black/[0.03] px-3 py-2 text-[11px] font-medium text-ios-textSecondary dark:bg-white/[0.05] dark:text-ios-textSecondaryDark">
-        当前会话
-        <div class="mt-1 truncate text-[12px] font-semibold text-ios-text dark:text-ios-textDark" :title="systemStore.currentAuthEmail || ''">
-          {{ onlineSummary }}
+        当前活跃 Key
+        <div class="mt-1 truncate text-[12px] font-semibold text-ios-text dark:text-ios-textDark" :title="activeSummary">
+          {{ activeSummary }}
         </div>
+      </div>
+      <div class="mt-3 flex items-center gap-2 rounded-[14px] border border-emerald-500/12 bg-emerald-500/[0.06] px-3 py-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+        <Shield class="h-3.5 w-3.5 shrink-0" stroke-width="2.4" />
+        健康 {{ mitmStore.status?.pool_status?.filter((item) => item.healthy).length ?? 0 }} / {{ mitmStore.status?.pool_status?.length ?? 0 }}
       </div>
     </div>
   </nav>

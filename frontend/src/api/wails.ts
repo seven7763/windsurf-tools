@@ -16,8 +16,7 @@ export interface ImportResult {
 
 export const APIInfo = {
   getAllAccounts: AppHooks.GetAllAccounts,
-  /** 号池与 settings 所在目录（跨平台 WindsurfTools） */
-  getAppStoragePath: AppHooks.GetAppStoragePath,
+  getAccount: AppHooks.GetAccount,
   deleteAccount: AppHooks.DeleteAccount,
   deleteExpiredAccounts: AppHooks.DeleteExpiredAccounts,
   deleteFreePlanAccounts: AppHooks.DeleteFreePlanAccounts,
@@ -30,11 +29,6 @@ export const APIInfo = {
   importByRefreshToken: AppHooks.ImportByRefreshToken,
   addSingleAccount: AppHooks.AddSingleAccount,
 
-  switchAccount: AppHooks.SwitchAccount,
-  autoSwitchToNext: AppHooks.AutoSwitchToNext,
-  getCurrentWindsurfAuth: AppHooks.GetCurrentWindsurfAuth,
-  getWindsurfAuthPath: AppHooks.GetWindsurfAuthPath,
-
   refreshAllTokens: AppHooks.RefreshAllTokens,
   refreshAllQuotas: AppHooks.RefreshAllQuotas,
   refreshAccountQuota: AppHooks.RefreshAccountQuota,
@@ -45,12 +39,8 @@ export const APIInfo = {
   getSettings: AppHooks.GetSettings,
   updateSettings: AppHooks.UpdateSettings,
 
-  findWindsurfPath: AppHooks.FindWindsurfPath,
-  applySeamlessPatch: AppHooks.ApplySeamlessPatch,
   applyToolbarLayout: AppHooks.ApplyToolbarLayout,
   restoreMainWindowLayout: AppHooks.RestoreMainWindowLayout,
-  restoreSeamlessPatch: AppHooks.RestoreSeamlessPatch,
-  checkPatchStatus: AppHooks.CheckPatchStatus,
 
   // MITM（与 AppHooks.* 一一对应，便于统一从 APIInfo 调用）
   startMitmProxy: AppHooks.StartMitmProxy,
@@ -60,6 +50,8 @@ export const APIInfo = {
   setupMitmHosts: AppHooks.SetupMitmHosts,
   teardownMitm: AppHooks.TeardownMitm,
   getMitmCAPath: AppHooks.GetMitmCAPath,
+  switchMitmToNext: AppHooks.SwitchMitmToNext,
+  switchMitmToAccount: AppHooks.SwitchMitmToAccount,
 
   // OpenAI 中转
   startOpenAIRelay: AppHooks.StartOpenAIRelay,

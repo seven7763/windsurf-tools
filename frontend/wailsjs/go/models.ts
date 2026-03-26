@@ -382,43 +382,6 @@ export namespace services {
 	        this.url = source["url"];
 	    }
 	}
-	export class PatchResult {
-	    success: boolean;
-	    already_patched: boolean;
-	    modifications: string[];
-	    backup_file: string;
-	    message: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PatchResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.already_patched = source["already_patched"];
-	        this.modifications = source["modifications"];
-	        this.backup_file = source["backup_file"];
-	        this.message = source["message"];
-	    }
-	}
-	
-	export class WindsurfAuthJSON {
-	    token: string;
-	    email?: string;
-	    timestamp?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new WindsurfAuthJSON(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.token = source["token"];
-	        this.email = source["email"];
-	        this.timestamp = source["timestamp"];
-	    }
-	}
 
 }
 

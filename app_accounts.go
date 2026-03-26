@@ -20,6 +20,15 @@ func (a *App) GetAllAccounts() []models.Account {
 	return accounts
 }
 
+func (a *App) GetAccount(id string) (*models.Account, error) {
+	acc, err := a.store.GetAccount(id)
+	if err != nil {
+		return nil, err
+	}
+	normalizeAccountPlanAndStatus(&acc)
+	return &acc, nil
+}
+
 func (a *App) DeleteAccount(id string) error {
 	if err := a.store.DeleteAccount(id); err != nil {
 		return err

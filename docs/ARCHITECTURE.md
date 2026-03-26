@@ -9,6 +9,8 @@
 > - 文件切号与 MITM 无感切号
 > - 后台服务与 OpenAI Relay 的关系
 > - 后续适合继续拆分和演进的方向
+>
+> 补充说明：自 2026-03-26 起，当前桌面前端产品路径已经收口为“纯 MITM 工作流”，主界面默认只暴露号池（MITM）、OpenAI Relay 和 MITM 相关设置。文档中仍会保留 `windsurf_auth.json` / SwitchService 等历史链路说明，因为这部分后端能力仍在仓库里，但它们不再是当前桌面壳的主入口。
 
 ---
 
@@ -20,7 +22,7 @@
 - 桌面壳：Wails
 - 前端：Vue 3 + Pinia
 
-项目核心目标不是单纯“管理账号”，而是围绕 Windsurf 的多账号使用场景，提供一整套本地控制面：
+项目核心目标不是单纯“管理账号”，而是围绕 Windsurf 的多账号使用场景，提供一整套本地控制面。当前前端产品主线已经固定为纯 MITM 模式：
 
 - 账号池导入与管理
 - Token / JWT / API Key 凭证维护
@@ -35,7 +37,8 @@
 - 用 JSON 文件保存账号池和配置
 - 用 Go 服务层负责和 Windsurf / Firebase / Codeium 接口打交道
 - 用 Wails 把这些能力暴露给前端界面
-- 用 MITM 和 `windsurf_auth.json` 两条链路控制实际登录身份
+- 当前前端主入口通过 MITM / Relay 控制实际身份
+- 仓库内部仍保留 `windsurf_auth.json` 相关能力作为历史兼容链路
 
 ---
 

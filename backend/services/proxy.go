@@ -1204,9 +1204,11 @@ func (p *MitmProxy) SwitchToKey(apiKey string) bool {
 	for i, k := range p.poolKeys {
 		if k == apiKey {
 			p.currentIdx = i
-			// 重置该 key 状态为健康
+			// 手动切换应真正解除 runtime exhausted / cooldown，允许用户立即重试这一席位。
 			if state := p.keyStates[k]; state != nil {
 				state.Healthy = true
+				state.RuntimeExhausted = false
+				state.CooldownUntil = time.Time{}
 				state.ConsecutiveErrs = 0
 			}
 			p.log("手动切换: → %s...", apiKey[:minStr(12, len(apiKey))])
@@ -1220,6 +1222,31 @@ func (p *MitmProxy) SwitchToKey(apiKey string) bool {
 	}
 	p.syncCurrentAPIKeyToClient(switchedKey)
 	return true
+}
+
+// SwitchToNext 手动切到 MITM 号池中的下一席位。
+func (p *MitmProxy) SwitchToNext() string {
+	p.mu.Lock()
+	if len(p.poolKeys) == 0 {
+		p.mu.Unlock()
+		return ""
+	}
+	nextKey := p.rotateKey()
+	if nextKey != "" {
+		if state := p.keyStates[nextKey]; state != nil {
+			state.Healthy = true
+			state.RuntimeExhausted = false
+			state.CooldownUntil = time.Time{}
+			state.ConsecutiveErrs = 0
+		}
+	}
+	p.mu.Unlock()
+	if nextKey == "" {
+		return ""
+	}
+	p.log("手动切换到下一席位: %s...", nextKey[:minStr(12, len(nextKey))])
+	p.syncCurrentAPIKeyToClient(nextKey)
+	return nextKey
 }
 
 // ── JWT management ──

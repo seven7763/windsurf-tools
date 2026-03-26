@@ -114,6 +114,19 @@ func TestWindsurfAuthPathCandidatesForLinuxIncludesGlobalStorage(t *testing.T) {
 	}
 }
 
+func TestPreferredAuthWritePathForLinuxPrefersGlobalStorage(t *testing.T) {
+	homeDir := t.TempDir()
+	configRoot := filepath.Join(homeDir, ".config")
+	candidates := windsurfAuthPathCandidatesFor("linux", homeDir, "", configRoot)
+
+	got := preferredAuthWritePathFor("linux", candidates)
+	want := filepath.Join(configRoot, "Windsurf", "User", "globalStorage", "windsurf_auth.json")
+
+	if filepath.Clean(got) != filepath.Clean(want) {
+		t.Fatalf("preferredAuthWritePathFor() = %q, want %q", got, want)
+	}
+}
+
 func TestUniqueCandidatePathsRemovesDuplicates(t *testing.T) {
 	got := uniqueCandidatePaths([]string{
 		"",

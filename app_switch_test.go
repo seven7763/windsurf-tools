@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 	"windsurf-tools-wails/backend/models"
 )
 
@@ -110,6 +111,32 @@ func TestPickNextMitmSwitchableAccount_RequiresAPIKey(t *testing.T) {
 	}
 	if got.ID != "next" {
 		t.Fatalf("pickNextMitmSwitchableAccount() picked %q, want %q", got.ID, "next")
+	}
+}
+
+func TestPickNextMitmSwitchableAccount_IncludesStaleQuotaCandidateAfterReset(t *testing.T) {
+	pastReset := time.Now().Add(-30 * time.Minute).Format(time.RFC3339)
+	oldSync := time.Now().Add(-5 * time.Hour).Format(time.RFC3339)
+	accounts := []models.Account{
+		{ID: "current", Email: "current@example.com", WindsurfAPIKey: "sk-ws-current", PlanName: "Pro", DailyRemaining: "0.00%", WeeklyRemaining: "0.00%"},
+		{
+			ID:              "stale-reset",
+			Email:           "stale-reset@example.com",
+			WindsurfAPIKey:  "sk-ws-stale",
+			PlanName:        "Pro",
+			DailyRemaining:  "0.00%",
+			WeeklyRemaining: "0.00%",
+			DailyResetAt:    pastReset,
+			LastQuotaUpdate: oldSync,
+		},
+	}
+
+	got, err := pickNextMitmSwitchableAccount(accounts, "current", "pro")
+	if err != nil {
+		t.Fatalf("pickNextMitmSwitchableAccount() error = %v", err)
+	}
+	if got.ID != "stale-reset" {
+		t.Fatalf("pickNextMitmSwitchableAccount() picked %q, want %q", got.ID, "stale-reset")
 	}
 }
 

@@ -1,4 +1,5 @@
 import { models } from '../../wailsjs/go/models'
+import { PURE_MITM_ONLY } from './appMode'
 
 /** 与 backend/utils/plan_tone.go PlanTone 顺序一致，用于排序与全选判定 */
 export const SWITCH_PLAN_FILTER_TONES = [
@@ -50,7 +51,7 @@ export function createDefaultSettings(): models.Settings {
     minimize_to_tray: false,
     show_desktop_toolbar: false,
     silent_start: false,
-    mitm_only: false,
+    mitm_only: PURE_MITM_ONLY,
     mitm_tun_mode: false,
     mitm_proxy_enabled: false,
     openai_relay_enabled: false,
@@ -147,7 +148,7 @@ export function clampQuotaMinutes(m: number): number {
   return Math.min(10080, Math.max(5, Math.round(m)))
 }
 
-/** 当前会话额度快查间隔（秒），与后端 clampQuotaHotPollSeconds 一致 */
+/** 当前活跃席位额度快查间隔（秒），与后端 clampQuotaHotPollSeconds 一致 */
 export function clampHotPollSeconds(sec: number): number {
   if (!Number.isFinite(sec) || sec <= 0) {
     return 12
@@ -169,9 +170,9 @@ export type SettingsForm = {
   auto_switch_plan_filter: string
   /** 额度用尽时自动切下一席（需开启定期同步额度） */
   auto_switch_on_quota_exhausted: boolean
-  /** 当前会话快查间隔（秒），用尽即切依赖此轮询 */
+  /** 当前活跃席位快查间隔（秒），用尽轮换依赖此轮询 */
   quota_hot_poll_seconds: number
-  /** 写入 auth 后重启 IDE，否则运行中 Windsurf 常仍用旧会话 */
+  /** 旧本地-auth 切换链路的兼容字段，纯 MITM 前端不再暴露 */
   restart_windsurf_after_switch: boolean
   /** 关闭窗口时最小化到系统托盘 */
   minimize_to_tray: boolean
@@ -179,7 +180,7 @@ export type SettingsForm = {
   show_desktop_toolbar: boolean
   /** 启动时不显示主窗口（托盘仍可打开） */
   silent_start: boolean
-  /** 仅 MITM：不切换 windsurf_auth，额度用尽也不文件切号 */
+  /** 纯 MITM 工作模式 */
   mitm_only: boolean
   /** 在 MITM 面板展示 TUN/全局代理说明（本应用不内置 TUN） */
   mitm_tun_mode: boolean

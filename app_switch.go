@@ -12,38 +12,11 @@ import (
 )
 
 // ═══════════════════════════════════════
-// 无感切号
+// 旧本地-auth 切号兼容逻辑（当前纯 MITM 前端不再直接暴露）
 // ═══════════════════════════════════════
 
-func (a *App) SwitchAccount(id string) error {
-	acc, err := a.store.GetAccount(id)
-	if err != nil {
-		return err
-	}
-	utils.DLog("[切号] SwitchAccount: id=%s email=%s plan=%s daily=%s weekly=%s", acc.ID, acc.Email, acc.PlanName, acc.DailyRemaining, acc.WeeklyRemaining)
-	prepared, err := a.prepareAccountForUsage(acc)
-	if err != nil {
-		utils.DLog("[切号] prepareAccountForUsage 失败: %v", err)
-		return err
-	}
-	if err := a.switchSvc.SwitchAccount(prepared.Token, prepared.Email); err != nil {
-		utils.DLog("[切号] SwitchAccount 写auth失败: %v", err)
-		return err
-	}
-	// ★ 同步本地 codeium config.json（API Key），否则 Windsurf 重读 auth 时仍用旧 key
-	if prepared.WindsurfAPIKey != "" {
-		if err := services.InjectCodeiumConfig(prepared.WindsurfAPIKey); err != nil {
-			utils.DLog("[切号] 同步 codeium config 失败: %v", err)
-		}
-		a.mitmProxy.SwitchToKey(prepared.WindsurfAPIKey)
-	}
-	utils.DLog("[切号] SwitchAccount 成功: %s", prepared.Email)
-	go a.applyPostWindsurfSwitch()
-	return nil
-}
-
-// AutoSwitchToNext 切到下一可用账号。planFilter：all 不限制；否则为 PlanTone 单值或逗号分隔多选（如 trial,pro）
-func (a *App) AutoSwitchToNext(currentID string, planFilter string) (string, error) {
+// autoSwitchToNext 切到下一可用账号。planFilter：all 不限制；否则为 PlanTone 单值或逗号分隔多选（如 trial,pro）
+func (a *App) autoSwitchToNext(currentID string, planFilter string) (string, error) {
 	accounts := a.store.GetAllAccounts()
 	candidates := orderedSwitchCandidates(accounts, currentID, planFilter)
 	utils.DLog("[切号] AutoSwitchToNext: currentID=%s filter=%s 号池=%d 候选=%d", currentID[:min(8, len(currentID))], planFilter, len(accounts), len(candidates))
@@ -130,10 +103,6 @@ func (a *App) prewarmCandidates(candidates []models.Account, maxN int) {
 	wg.Wait()
 }
 
-func (a *App) GetCurrentWindsurfAuth() (*services.WindsurfAuthJSON, error) {
-	return a.switchSvc.GetCurrentAuth()
-}
-
 // applyPostWindsurfSwitch 写入 auth 后：尝试协议刷新；若开启设置则重启 Windsurf（运行中 IDE 会缓存 JWT，仅改文件通常不会立即换账号）。
 func (a *App) applyPostWindsurfSwitch() {
 	settings := a.store.GetSettings()
@@ -153,10 +122,6 @@ func (a *App) applyPostWindsurfSwitch() {
 	if err := a.patchSvc.RestartWindsurfFromInstall(root); err != nil {
 		utils.DLog("[切号] applyPostSwitch: 重启失败: %v", err)
 	}
-}
-
-func (a *App) GetWindsurfAuthPath() (string, error) {
-	return a.switchSvc.GetWindsurfAuthPath()
 }
 
 func hasSwitchCredentials(acc *models.Account) bool {
@@ -247,20 +212,30 @@ func quotaDataIsStale(acc *models.Account) bool {
 }
 
 func orderedMitmCandidates(accounts []models.Account, currentID string, planFilter string) []models.Account {
-	out := make([]models.Account, 0, len(accounts))
+	var fresh, stale []models.Account
 	for _, acc := range accounts {
 		if acc.ID == currentID {
 			continue
 		}
-		if !accountEligibleForUsage(&acc, planFilter, true) {
+		if accountEligibleForUsage(&acc, planFilter, true) {
+			fresh = append(fresh, acc)
 			continue
 		}
-		out = append(out, acc)
+		if quotaDataIsStale(&acc) && hasSwitchCredentials(&acc) && utils.PlanFilterMatch(planFilter, acc.PlanName) &&
+			strings.TrimSpace(acc.WindsurfAPIKey) != "" {
+			status := strings.TrimSpace(strings.ToLower(acc.Status))
+			if status != "disabled" && status != "expired" {
+				stale = append(stale, acc)
+			}
+		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return switchCredentialPriority(out[i]) < switchCredentialPriority(out[j])
+	sort.SliceStable(fresh, func(i, j int) bool {
+		return switchCredentialPriority(fresh[i]) < switchCredentialPriority(fresh[j])
 	})
-	return out
+	sort.SliceStable(stale, func(i, j int) bool {
+		return switchCredentialPriority(stale[i]) < switchCredentialPriority(stale[j])
+	})
+	return append(fresh, stale...)
 }
 
 func switchCredentialPriority(acc models.Account) int {

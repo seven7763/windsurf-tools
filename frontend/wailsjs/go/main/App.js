@@ -6,20 +6,8 @@ export function AddSingleAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSingleAccount'](arg1, arg2, arg3);
 }
 
-export function ApplySeamlessPatch(arg1) {
-  return window['go']['main']['App']['ApplySeamlessPatch'](arg1);
-}
-
 export function ApplyToolbarLayout(arg1) {
   return window['go']['main']['App']['ApplyToolbarLayout'](arg1);
-}
-
-export function AutoSwitchToNext(arg1, arg2) {
-  return window['go']['main']['App']['AutoSwitchToNext'](arg1, arg2);
-}
-
-export function CheckPatchStatus(arg1) {
-  return window['go']['main']['App']['CheckPatchStatus'](arg1);
 }
 
 export function ControlBackgroundService(arg1) {
@@ -46,24 +34,16 @@ export function ExportAccountsByGroup(arg1) {
   return window['go']['main']['App']['ExportAccountsByGroup'](arg1);
 }
 
-export function FindWindsurfPath() {
-  return window['go']['main']['App']['FindWindsurfPath']();
+export function GetAccount(arg1) {
+  return window['go']['main']['App']['GetAccount'](arg1);
 }
 
 export function GetAllAccounts() {
   return window['go']['main']['App']['GetAllAccounts']();
 }
 
-export function GetAppStoragePath() {
-  return window['go']['main']['App']['GetAppStoragePath']();
-}
-
 export function GetBackgroundServiceStatus() {
   return window['go']['main']['App']['GetBackgroundServiceStatus']();
-}
-
-export function GetCurrentWindsurfAuth() {
-  return window['go']['main']['App']['GetCurrentWindsurfAuth']();
 }
 
 export function GetDesktopRuntimeStatus() {
@@ -92,10 +72,6 @@ export function GetProtoDumpDir() {
 
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
-}
-
-export function GetWindsurfAuthPath() {
-  return window['go']['main']['App']['GetWindsurfAuthPath']();
 }
 
 export function ImportByAPIKey(arg1) {
@@ -130,10 +106,6 @@ export function RestoreMainWindowLayout() {
   return window['go']['main']['App']['RestoreMainWindowLayout']();
 }
 
-export function RestoreSeamlessPatch(arg1) {
-  return window['go']['main']['App']['RestoreSeamlessPatch'](arg1);
-}
-
 export function SetSilentFromFlag(arg1) {
   return window['go']['main']['App']['SetSilentFromFlag'](arg1);
 }
@@ -162,8 +134,12 @@ export function StopOpenAIRelay() {
   return window['go']['main']['App']['StopOpenAIRelay']();
 }
 
-export function SwitchAccount(arg1) {
-  return window['go']['main']['App']['SwitchAccount'](arg1);
+export function SwitchMitmToAccount(arg1) {
+  return window['go']['main']['App']['SwitchMitmToAccount'](arg1);
+}
+
+export function SwitchMitmToNext() {
+  return window['go']['main']['App']['SwitchMitmToNext']();
 }
 
 export function TeardownMitm() {

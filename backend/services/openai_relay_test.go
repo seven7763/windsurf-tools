@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -134,25 +135,26 @@ func TestRelayChatRejectsInvalidJSON(t *testing.T) {
 
 func TestRelayStartStop(t *testing.T) {
 	relay := newTestRelay()
+	port := reserveTestPort(t)
 
 	status := relay.Status()
 	if status.Running {
 		t.Fatal("should not be running initially")
 	}
 
-	if err := relay.Start(0, ""); err != nil {
+	if err := relay.Start(port, ""); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	status = relay.Status()
 	if !status.Running {
 		t.Fatal("should be running after Start")
 	}
-	if status.Port != 8787 {
-		t.Fatalf("port = %d, want 8787", status.Port)
+	if status.Port != port {
+		t.Fatalf("port = %d, want %d", status.Port, port)
 	}
 
 	// double start should error
-	if err := relay.Start(0, ""); err == nil {
+	if err := relay.Start(port, ""); err == nil {
 		t.Fatal("double Start should error")
 	}
 
@@ -163,6 +165,20 @@ func TestRelayStartStop(t *testing.T) {
 	if status.Running {
 		t.Fatal("should not be running after Stop")
 	}
+}
+
+func reserveTestPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve test port: %v", err)
+	}
+	defer ln.Close()
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("reserve test port: unexpected addr type %T", ln.Addr())
+	}
+	return addr.Port
 }
 
 func TestBuildSSEChunk(t *testing.T) {
@@ -226,7 +242,10 @@ func TestStreamResponse_EmitsSSEChunks(t *testing.T) {
 	)))
 	w := httptest.NewRecorder()
 
-	relay.streamResponse(w, body, "chat-1", "cascade")
+	kind, detail := relay.streamResponse(w, newRelayHTTPResponse(body, nil), "chat-1", "cascade")
+	if kind != upstreamFailureNone {
+		t.Fatalf("streamResponse() kind = %q detail=%q, want none", kind, detail)
+	}
 
 	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
@@ -256,7 +275,10 @@ func TestStreamResponse_HandlesSplitFrameAcrossReads(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 
-	relay.streamResponse(w, body, "chat-2", "cascade")
+	kind, detail := relay.streamResponse(w, newRelayHTTPResponse(body, nil), "chat-2", "cascade")
+	if kind != upstreamFailureNone {
+		t.Fatalf("streamResponse() kind = %q detail=%q, want none", kind, detail)
+	}
 
 	out := w.Body.String()
 	if !strings.Contains(out, `"content":"split"`) {
@@ -283,7 +305,10 @@ func TestStreamResponse_HandlesCompressedConnectFrames(t *testing.T) {
 	body := io.NopCloser(strings.NewReader(string(stream)))
 	w := httptest.NewRecorder()
 
-	relay.streamResponse(w, body, "chat-compressed", "cascade")
+	kind, detail := relay.streamResponse(w, newRelayHTTPResponse(body, nil), "chat-compressed", "cascade")
+	if kind != upstreamFailureNone {
+		t.Fatalf("streamResponse() kind = %q detail=%q, want none", kind, detail)
+	}
 
 	out := w.Body.String()
 	if !strings.Contains(out, `"content":"hello "`) {
@@ -297,6 +322,88 @@ func TestStreamResponse_HandlesCompressedConnectFrames(t *testing.T) {
 	}
 	if !strings.Contains(out, `data: [DONE]`) {
 		t.Fatalf("stream output missing DONE marker: %s", out)
+	}
+}
+
+func TestStreamResponse_QuotaTrailerDoesNotEmitDone(t *testing.T) {
+	relay := newTestRelay()
+	body := io.NopCloser(strings.NewReader(string(
+		appendGRPCFrame(nil, encodeBytesField(1, []byte("partial"))),
+	)))
+	trailers := http.Header{
+		"Grpc-Status":  []string{"9"},
+		"Grpc-Message": []string{"Failed precondition: Your weekly usage quota has been exhausted."},
+	}
+	w := httptest.NewRecorder()
+
+	kind, detail := relay.streamResponse(w, newRelayHTTPResponse(body, trailers), "chat-quota", "cascade")
+
+	if kind != upstreamFailureQuota {
+		t.Fatalf("streamResponse() kind = %q, want %q", kind, upstreamFailureQuota)
+	}
+	if detail == "" {
+		t.Fatal("streamResponse() detail empty")
+	}
+	if strings.Contains(w.Body.String(), `data: [DONE]`) {
+		t.Fatalf("quota trailer should not emit DONE: %s", w.Body.String())
+	}
+}
+
+func TestBlockingResponse_QuotaTrailerReturnsOpenAIError(t *testing.T) {
+	relay := newTestRelay()
+	body := io.NopCloser(strings.NewReader(string(
+		appendGRPCFrame(nil, encodeBytesField(1, []byte("ignored"))),
+	)))
+	trailers := http.Header{
+		"Grpc-Status":  []string{"9"},
+		"Grpc-Message": []string{"Failed precondition: Your daily usage quota has been exhausted."},
+	}
+	w := httptest.NewRecorder()
+
+	kind, detail := relay.blockingResponse(w, newRelayHTTPResponse(body, trailers), "chat-blocking", "cascade")
+
+	if kind != upstreamFailureQuota {
+		t.Fatalf("blockingResponse() kind = %q, want %q", kind, upstreamFailureQuota)
+	}
+	if detail == "" {
+		t.Fatal("blockingResponse() detail empty")
+	}
+	if w.Code != 429 {
+		t.Fatalf("status = %d, want 429", w.Code)
+	}
+}
+
+func TestFinalizeRelayOutcome_SuccessRecordsSuccess(t *testing.T) {
+	relay := newTestRelay()
+
+	relay.finalizeRelayOutcome("sk-ws-test1", upstreamFailureNone, "")
+
+	state := relay.proxy.keyStates["sk-ws-test1"]
+	if state == nil {
+		t.Fatal("missing key state")
+	}
+	if state.SuccessCount != 1 {
+		t.Fatalf("SuccessCount = %d, want 1", state.SuccessCount)
+	}
+	if state.RuntimeExhausted {
+		t.Fatal("RuntimeExhausted should remain false after success")
+	}
+}
+
+func TestFinalizeRelayOutcome_QuotaDoesNotRecordSuccess(t *testing.T) {
+	relay := newTestRelay()
+
+	relay.finalizeRelayOutcome("sk-ws-test1", upstreamFailureQuota, "grpc-status=9 grpc-message=quota exhausted")
+
+	state := relay.proxy.keyStates["sk-ws-test1"]
+	if state == nil {
+		t.Fatal("missing key state")
+	}
+	if state.SuccessCount != 0 {
+		t.Fatalf("SuccessCount = %d, want 0", state.SuccessCount)
+	}
+	if !state.RuntimeExhausted {
+		t.Fatal("RuntimeExhausted should be true after quota failure")
 	}
 }
 
@@ -319,4 +426,15 @@ func appendGRPCFrame(dst []byte, payload []byte) []byte {
 	binary.BigEndian.PutUint32(frame[1:5], uint32(len(payload)))
 	copy(frame[5:], payload)
 	return append(dst, frame...)
+}
+
+func newRelayHTTPResponse(body io.ReadCloser, trailers http.Header) *http.Response {
+	if trailers == nil {
+		trailers = http.Header{}
+	}
+	return &http.Response{
+		StatusCode: 200,
+		Body:       body,
+		Trailer:    trailers,
+	}
 }

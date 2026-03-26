@@ -59,6 +59,38 @@ func (a *App) StopMitmProxy() error {
 	return a.mitmProxy.Stop()
 }
 
+// SwitchMitmToNext 手动切到 MITM 号池中的下一席位。
+func (a *App) SwitchMitmToNext() (string, error) {
+	a.syncMitmPoolKeys()
+	nextKey := strings.TrimSpace(a.mitmProxy.SwitchToNext())
+	if nextKey == "" {
+		return "", fmt.Errorf("MITM 号池为空，或当前没有可切换的席位")
+	}
+	return a.describeMitmKey(nextKey), nil
+}
+
+// SwitchMitmToAccount 手动切到指定账号对应的 MITM API Key。
+func (a *App) SwitchMitmToAccount(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", fmt.Errorf("账号 ID 不能为空")
+	}
+	acc, err := a.store.GetAccount(id)
+	if err != nil {
+		return "", err
+	}
+	apiKey := strings.TrimSpace(acc.WindsurfAPIKey)
+	if apiKey == "" {
+		return "", fmt.Errorf("该账号没有 API Key，无法用于 MITM 手动切号")
+	}
+
+	a.syncMitmPoolKeys()
+	if !a.mitmProxy.SwitchToKey(apiKey) {
+		return "", fmt.Errorf("该账号当前未加入 MITM 号池，请检查套餐筛选、额度状态或 API Key 是否可用")
+	}
+	return a.describeMitmKey(apiKey), nil
+}
+
 // GetMitmProxyStatus returns the current proxy status.
 func (a *App) GetMitmProxyStatus() services.MitmProxyStatus {
 	return a.mitmProxy.Status()
@@ -145,4 +177,27 @@ func (a *App) GetMitmDebugDumpEnabled() bool {
 // GetProtoDumpDir 返回 proto dump 文件目录路径
 func (a *App) GetProtoDumpDir() string {
 	return services.ProtoDumpDir()
+}
+
+func (a *App) describeMitmKey(apiKey string) string {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return ""
+	}
+	for _, acc := range a.store.GetAllAccounts() {
+		if strings.TrimSpace(acc.WindsurfAPIKey) != apiKey {
+			continue
+		}
+		if email := strings.TrimSpace(acc.Email); email != "" {
+			return email
+		}
+		if nickname := strings.TrimSpace(acc.Nickname); nickname != "" {
+			return nickname
+		}
+		break
+	}
+	if len(apiKey) > 16 {
+		return apiKey[:12] + "..."
+	}
+	return apiKey
 }

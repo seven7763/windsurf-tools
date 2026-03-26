@@ -1,99 +1,146 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import Header from './components/layout/Header.vue'
-import Sidebar from './components/layout/Sidebar.vue'
-import AppFooter from './components/layout/AppFooter.vue'
-import IConfirm from './components/ios/IConfirm.vue'
-import IToast from './components/ios/IToast.vue'
-import ToolbarStrip from './components/ToolbarStrip.vue'
-import Dashboard from './views/Dashboard.vue'
-import Accounts from './views/Accounts.vue'
-import Relay from './views/Relay.vue'
-import Settings from './views/Settings.vue'
-import { useAccountStore } from './stores/useAccountStore'
-import { useSettingsStore } from './stores/useSettingsStore'
-import { useSystemStore } from './stores/useSystemStore'
-import { useMainViewStore } from './stores/useMainViewStore'
-import { APIInfo } from './api/wails'
-import { EventsOn, WindowShow } from '../wailsjs/runtime/runtime'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
+import Header from "./components/layout/Header.vue";
+import Sidebar from "./components/layout/Sidebar.vue";
+import AppFooter from "./components/layout/AppFooter.vue";
+import IConfirm from "./components/ios/IConfirm.vue";
+import IToast from "./components/ios/IToast.vue";
+import ToolbarStrip from "./components/ToolbarStrip.vue";
+import PageLoadingSkeleton from "./components/common/PageLoadingSkeleton.vue";
+import { useAccountStore } from "./stores/useAccountStore";
+import { useSettingsStore } from "./stores/useSettingsStore";
+import { useMitmStatusStore } from "./stores/useMitmStatusStore";
+import { useMainViewStore } from "./stores/useMainViewStore";
+import {
+  DEFAULT_MAIN_VIEW,
+  PURE_MITM_ONLY,
+  type ShellViewTab,
+} from "./utils/appMode";
+import { APIInfo } from "./api/wails";
+import { EventsOn, WindowShow } from "../wailsjs/runtime/runtime";
 
-const mainView = useMainViewStore()
-const settings = useSettingsStore()
-const toolbarMode = ref(false)
-const shellReady = ref(false)
-let unToolbarEvent: (() => void) | undefined
-let unVisibilityRefresh: (() => void) | undefined
+const mainView = useMainViewStore();
+const settings = useSettingsStore();
+const mitmStore = useMitmStatusStore();
+const toolbarMode = ref(false);
+const shellReady = ref(false);
+let unToolbarEvent: (() => void) | undefined;
+let unVisibilityRefresh: (() => void) | undefined;
 
-const viewComponents = {
-  Dashboard,
-  Accounts,
-  Relay,
-  Settings,
-} as const
-
-type MainViewTab = keyof typeof viewComponents
+const viewRegistry = {
+  Dashboard: {
+    component: defineAsyncComponent(() => import("./views/Dashboard.vue")),
+    skeleton: "dashboard",
+  },
+  Accounts: {
+    component: defineAsyncComponent(() => import("./views/Accounts.vue")),
+    skeleton: "accounts",
+  },
+  Relay: {
+    component: defineAsyncComponent(() => import("./views/Relay.vue")),
+    skeleton: "relay",
+  },
+  Settings: {
+    component: defineAsyncComponent(() => import("./views/Settings.vue")),
+    skeleton: "settings",
+  },
+} as const;
 
 const activeViewComponent = computed(() => {
-  const current = mainView.activeTab as MainViewTab
-  return viewComponents[current] ?? viewComponents.Settings
-})
+  const current = mainView.activeTab as ShellViewTab;
+  return (
+    viewRegistry[current]?.component ??
+    viewRegistry[DEFAULT_MAIN_VIEW].component
+  );
+});
+
+const activeViewSkeleton = computed(() => {
+  const current = mainView.activeTab as ShellViewTab;
+  return (
+    viewRegistry[current]?.skeleton ?? viewRegistry[DEFAULT_MAIN_VIEW].skeleton
+  );
+});
 
 watch(
   () => settings.settings?.show_desktop_toolbar,
   (enabled) => {
-    if (typeof enabled === 'boolean') {
-      toolbarMode.value = enabled
+    if (typeof enabled === "boolean") {
+      toolbarMode.value = enabled;
     }
   },
   { immediate: true },
-)
+);
 
 onMounted(async () => {
-  const accounts = useAccountStore()
-  const system = useSystemStore()
-  await settings.fetchSettings()
-  toolbarMode.value = settings.settings?.show_desktop_toolbar === true
+  const accounts = useAccountStore();
+  await settings.fetchSettings();
+  if (PURE_MITM_ONLY) {
+    await settings.ensurePureMitm();
+    if (!(mainView.activeTab in viewRegistry)) {
+      mainView.activeTab = DEFAULT_MAIN_VIEW;
+    }
+  }
+  toolbarMode.value = settings.settings?.show_desktop_toolbar === true;
 
-  unToolbarEvent = EventsOn('toolbar:set', (...data: unknown[]) => {
-    toolbarMode.value = Boolean(data[0])
-  })
+  unToolbarEvent = EventsOn("toolbar:set", (...data: unknown[]) => {
+    toolbarMode.value = Boolean(data[0]);
+  });
 
   // 必须先切 toolbarMode 再 Resize，否则小窗里仍是完整主界面 DOM（错乱）
   if (settings.settings?.show_desktop_toolbar) {
-    toolbarMode.value = true
-    await nextTick()
-    await APIInfo.applyToolbarLayout(true)
+    toolbarMode.value = true;
+    await nextTick();
+    await APIInfo.applyToolbarLayout(true);
     // 静默启动时 Go 会先 WindowHide；小窗就绪后必须再 Show，否则只见托盘不见小条
-    WindowShow()
+    WindowShow();
   }
 
-  shellReady.value = true
-  void Promise.all([accounts.fetchAccounts(), system.initSystemEnvironment()]).catch((error) => {
-    console.error('App bootstrap background fetch failed:', error)
-  })
+  shellReady.value = true;
+  mitmStore.startPolling();
+  if (!toolbarMode.value) {
+    void accounts.ensureAccountsLoaded().catch((error) => {
+      console.error("App bootstrap accounts fetch failed:", error);
+    });
+  }
 
-  // 从后台切回前台时刷新当前会话与号池（节流，避免频繁触发）
-  let lastFocusRefresh = 0
+  // 从后台切回前台时仅刷新 MITM 相关数据，避免旧 Auth 路径带来的额外抖动
+  let lastFocusRefresh = 0;
   const onVisibilityChange = () => {
-    if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
-      return
+    if (
+      typeof document === "undefined" ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
     }
-    const now = Date.now()
+    const now = Date.now();
     if (now - lastFocusRefresh < 2500) {
-      return
+      return;
     }
-    lastFocusRefresh = now
-    void system.fetchCurrentAuth()
-    void accounts.fetchAccounts()
-  }
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  unVisibilityRefresh = () => document.removeEventListener('visibilitychange', onVisibilityChange)
-})
+    lastFocusRefresh = now;
+    if (toolbarMode.value) {
+      return;
+    }
+    void accounts.fetchAccounts();
+    void mitmStore.fetchStatus();
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  unVisibilityRefresh = () =>
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+});
 
 onUnmounted(() => {
-  unToolbarEvent?.()
-  unVisibilityRefresh?.()
-})
+  mitmStore.stopPolling();
+  unToolbarEvent?.();
+  unVisibilityRefresh?.();
+});
 </script>
 
 <template>
@@ -119,12 +166,27 @@ onUnmounted(() => {
     <template v-else>
       <Header />
       <div class="flex flex-1 overflow-hidden relative">
-        <Sidebar :activeTab="mainView.activeTab" @update:activeTab="mainView.activeTab = $event" />
-        <main class="flex-1 flex flex-col min-h-0 overflow-hidden relative bg-black/[0.01] dark:bg-white/[0.01]">
-          <div class="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth min-h-0 flex flex-col">
+        <Sidebar
+          :activeTab="mainView.activeTab"
+          @update:activeTab="mainView.activeTab = $event"
+        />
+        <main
+          class="flex-1 flex flex-col min-h-0 overflow-hidden relative bg-black/[0.01] dark:bg-white/[0.01]"
+        >
+          <div
+            class="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth min-h-0 flex flex-col"
+          >
             <div class="flex-1 shrink-0 flex flex-col relative">
               <Transition name="fade">
-                <component :is="activeViewComponent" :key="mainView.activeTab" />
+                <Suspense :key="mainView.activeTab">
+                  <component :is="activeViewComponent" />
+                  <template #fallback>
+                    <PageLoadingSkeleton
+                      :variant="activeViewSkeleton"
+                      class="flex-1"
+                    />
+                  </template>
+                </Suspense>
               </Transition>
             </div>
             <AppFooter class="mt-auto" />
@@ -140,7 +202,9 @@ onUnmounted(() => {
 <style scoped>
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    opacity 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .fade-leave-active {
   position: absolute;
