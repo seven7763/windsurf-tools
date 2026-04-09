@@ -4,6 +4,15 @@
 
 **GitHub 仓库：** [shaoyu521/windsurf-Tools](https://github.com/shaoyu521/windsurf-Tools)
 
+## 💬 交流群
+
+进不去群请加微信：**LinMuYang-i9**
+
+| 1群 | 2群 | 3群 |
+|-----|-----|-----|
+| ![1群](qr.jpg) | ![2群](qr2.jpg) | ![3群](qr3.jpg) |
+
+
 ---
 
 ## 下载发布包
