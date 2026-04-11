@@ -6,8 +6,28 @@ export function AddSingleAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSingleAccount'](arg1, arg2, arg3);
 }
 
+export function ApplyAllPerformanceFixes() {
+  return window['go']['main']['App']['ApplyAllPerformanceFixes']();
+}
+
+export function ApplyPerformanceFix(arg1) {
+  return window['go']['main']['App']['ApplyPerformanceFix'](arg1);
+}
+
 export function ApplyToolbarLayout(arg1) {
   return window['go']['main']['App']['ApplyToolbarLayout'](arg1);
+}
+
+export function CleanupAllSafe() {
+  return window['go']['main']['App']['CleanupAllSafe']();
+}
+
+export function CleanupStartupCache() {
+  return window['go']['main']['App']['CleanupStartupCache']();
+}
+
+export function CleanupWindsurf(arg1) {
+  return window['go']['main']['App']['CleanupWindsurf'](arg1);
 }
 
 export function ControlBackgroundService(arg1) {
@@ -20,6 +40,10 @@ export function DeleteAccount(arg1) {
 
 export function DeleteAccountsByGroup(arg1) {
   return window['go']['main']['App']['DeleteAccountsByGroup'](arg1);
+}
+
+export function DeleteAllUsage() {
+  return window['go']['main']['App']['DeleteAllUsage']();
 }
 
 export function DeleteExpiredAccounts() {
@@ -46,6 +70,10 @@ export function GetBackgroundServiceStatus() {
   return window['go']['main']['App']['GetBackgroundServiceStatus']();
 }
 
+export function GetCaptureDir() {
+  return window['go']['main']['App']['GetCaptureDir']();
+}
+
 export function GetDesktopRuntimeStatus() {
   return window['go']['main']['App']['GetDesktopRuntimeStatus']();
 }
@@ -58,12 +86,24 @@ export function GetMitmDebugDumpEnabled() {
   return window['go']['main']['App']['GetMitmDebugDumpEnabled']();
 }
 
+export function GetMitmFullCaptureEnabled() {
+  return window['go']['main']['App']['GetMitmFullCaptureEnabled']();
+}
+
 export function GetMitmProxyStatus() {
   return window['go']['main']['App']['GetMitmProxyStatus']();
 }
 
+export function GetMitmSessionBindings() {
+  return window['go']['main']['App']['GetMitmSessionBindings']();
+}
+
 export function GetOpenAIRelayStatus() {
   return window['go']['main']['App']['GetOpenAIRelayStatus']();
+}
+
+export function GetPerformanceTips() {
+  return window['go']['main']['App']['GetPerformanceTips']();
 }
 
 export function GetProtoDumpDir() {
@@ -72,6 +112,26 @@ export function GetProtoDumpDir() {
 
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
+}
+
+export function GetStaticCacheDir() {
+  return window['go']['main']['App']['GetStaticCacheDir']();
+}
+
+export function GetUsageRecords(arg1) {
+  return window['go']['main']['App']['GetUsageRecords'](arg1);
+}
+
+export function GetUsageSummary() {
+  return window['go']['main']['App']['GetUsageSummary']();
+}
+
+export function GetWindsurfDiskUsage() {
+  return window['go']['main']['App']['GetWindsurfDiskUsage']();
+}
+
+export function GetWindsurfProcessInfo() {
+  return window['go']['main']['App']['GetWindsurfProcessInfo']();
 }
 
 export function ImportByAPIKey(arg1) {
@@ -148,6 +208,14 @@ export function TeardownMitm() {
 
 export function ToggleMitmDebugDump(arg1) {
   return window['go']['main']['App']['ToggleMitmDebugDump'](arg1);
+}
+
+export function ToggleMitmFullCapture(arg1) {
+  return window['go']['main']['App']['ToggleMitmFullCapture'](arg1);
+}
+
+export function UnbindMitmSession(arg1) {
+  return window['go']['main']['App']['UnbindMitmSession'](arg1);
 }
 
 export function UpdateSettings(arg1) {

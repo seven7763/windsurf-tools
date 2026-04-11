@@ -81,6 +81,7 @@ func TestApplyAccountProfile(t *testing.T) {
 	}
 	daily := 78.0
 	weekly := 88.0
+	futureExpiry := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
 
 	applyAccountProfile(acc, &services.AccountProfile{
 		Email:                 "trial@example.com",
@@ -92,7 +93,7 @@ func TestApplyAccountProfile(t *testing.T) {
 		WeeklyQuotaRemaining:  &weekly,
 		DailyResetAt:          "2026-03-21T08:00:00Z",
 		WeeklyResetAt:         "2026-03-22T08:00:00Z",
-		SubscriptionExpiresAt: "2026-03-29T08:00:00Z",
+		SubscriptionExpiresAt: futureExpiry,
 	})
 
 	if acc.Email != "trial@example.com" {
@@ -113,10 +114,11 @@ func TestApplyAccountProfile(t *testing.T) {
 	if acc.DailyResetAt == "" || acc.WeeklyResetAt == "" {
 		t.Fatal("reset timestamps should be set")
 	}
-	if acc.SubscriptionExpiresAt != "2026-03-29T08:00:00Z" {
+	if acc.SubscriptionExpiresAt != futureExpiry {
 		t.Fatalf("SubscriptionExpiresAt = %q", acc.SubscriptionExpiresAt)
 	}
 }
+
 
 func TestApplyAccountProfile_ClearsStaleQuotaSnapshotWhenOfficialValueMissing(t *testing.T) {
 	acc := &models.Account{
@@ -237,6 +239,14 @@ func TestApplyAccessErrorStatus(t *testing.T) {
 		}
 		if acc.PlanName != "Free" {
 			t.Fatalf("PlanName = %q, want Free", acc.PlanName)
+		}
+	})
+
+	t.Run("generic permission denied disables active account", func(t *testing.T) {
+		acc := &models.Account{PlanName: "Pro", Status: "active"}
+		applyAccessErrorStatus(acc, fmt.Errorf(`Connect JWT失败(HTTP 403): {"code":"permission_denied","message":"permission denied"}`))
+		if acc.Status != "disabled" {
+			t.Fatalf("Status = %q, want disabled", acc.Status)
 		}
 	})
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Globe, LayoutDashboard, Settings, Shield, Users } from 'lucide-vue-next'
+import { Activity, Globe, HardDriveDownload, Hash, LayoutDashboard, MessageSquare, Settings, Shield, User, Users } from 'lucide-vue-next'
 import { useAccountStore } from '../../stores/useAccountStore'
 import { useMitmStatusStore } from '../../stores/useMitmStatusStore'
 import { PRIMARY_POOL_LABEL, type ShellViewTab } from '../../utils/appMode'
@@ -14,7 +14,9 @@ const mitmStore = useMitmStatusStore()
 const menuItems = [
   { id: 'Dashboard', icon: LayoutDashboard, label: '总览' },
   { id: 'Accounts', icon: Users, label: PRIMARY_POOL_LABEL },
+  { id: 'Usage', icon: Activity, label: '用量统计' },
   { id: 'Relay', icon: Globe, label: 'OpenAI Relay' },
+  { id: 'Cleanup', icon: HardDriveDownload, label: '清理优化' },
   { id: 'Settings', icon: Settings, label: 'MITM 设置' },
 ] satisfies Array<{ id: ShellViewTab; icon: typeof Users; label: string }>
 
@@ -28,6 +30,22 @@ const activeSummary = computed(() => {
     return '等待活跃 Key'
   }
   return key
+})
+
+const activeAccountLabel = computed(() => {
+  const k = activeKey.value
+  if (!k) return ''
+  const nick = String(k.nickname || '').trim()
+  const email = String(k.email || '').trim()
+  if (nick && email) return `${nick} (${email})`
+  return email || nick || ''
+})
+
+const boundSessions = computed(() => {
+  const sessions = mitmStore.status?.active_sessions ?? []
+  const currentKeyShort = activeKey.value?.key_short ?? ''
+  if (!currentKeyShort) return []
+  return sessions.filter((s) => s.pool_key_short === currentKeyShort)
 })
 </script>
 
@@ -72,12 +90,40 @@ const activeSummary = computed(() => {
           {{ footerModeLabel }}
         </span>
       </div>
+
+      <!-- 当前活跃 Key -->
       <div class="mt-3 rounded-[14px] bg-black/[0.03] px-3 py-2 text-[11px] font-medium text-ios-textSecondary dark:bg-white/[0.05] dark:text-ios-textSecondaryDark">
         当前活跃 Key
         <div class="mt-1 truncate text-[12px] font-semibold text-ios-text dark:text-ios-textDark" :title="activeSummary">
           {{ activeSummary }}
         </div>
       </div>
+
+      <!-- 当前活跃账号 -->
+      <div v-if="activeAccountLabel" class="mt-2 flex items-center gap-1.5 rounded-[14px] bg-ios-blue/[0.06] px-3 py-2 text-[11px] font-medium text-ios-blue">
+        <User class="h-3.5 w-3.5 shrink-0" stroke-width="2.4" />
+        <span class="truncate" :title="activeAccountLabel">{{ activeAccountLabel }}</span>
+      </div>
+
+      <!-- 绑定的对话 -->
+      <div v-if="boundSessions.length > 0" class="mt-2 rounded-[14px] bg-black/[0.02] px-3 py-2 dark:bg-white/[0.03]">
+        <div class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.15em] text-ios-textSecondary dark:text-ios-textSecondaryDark mb-1.5">
+          <MessageSquare class="h-3 w-3 shrink-0" stroke-width="2.2" />
+          绑定对话 ({{ boundSessions.length }})
+        </div>
+        <ul class="space-y-1">
+          <li
+            v-for="session in boundSessions"
+            :key="session.conv_id_short"
+            class="flex items-center gap-1.5 text-[10px] text-ios-text dark:text-ios-textDark"
+          >
+            <Hash class="h-3 w-3 shrink-0 opacity-40" stroke-width="2" />
+            <span class="truncate font-mono" :title="session.conv_id_short">{{ session.conv_id_short }}</span>
+            <span class="ml-auto shrink-0 text-[9px] text-ios-textSecondary dark:text-ios-textSecondaryDark">{{ session.request_count }}次</span>
+          </li>
+        </ul>
+      </div>
+
       <div class="mt-3 flex items-center gap-2 rounded-[14px] border border-emerald-500/12 bg-emerald-500/[0.06] px-3 py-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
         <Shield class="h-3.5 w-3.5 shrink-0" stroke-width="2.4" />
         健康 {{ mitmStore.status?.pool_status?.filter((item) => item.healthy).length ?? 0 }} / {{ mitmStore.status?.pool_status?.length ?? 0 }}

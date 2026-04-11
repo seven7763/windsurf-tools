@@ -60,4 +60,27 @@ export const APIInfo = {
 
   // MITM debug dump
   toggleMitmDebugDump: AppHooks.ToggleMitmDebugDump,
+
+  // MITM 全量抓包
+  toggleMitmFullCapture: AppHooks.ToggleMitmFullCapture,
+  getMitmFullCaptureEnabled: AppHooks.GetMitmFullCaptureEnabled,
+  getCaptureDir: AppHooks.GetCaptureDir,
+
+  getMitmSessionBindings: AppHooks.GetMitmSessionBindings,
+  unbindMitmSession: AppHooks.UnbindMitmSession,
+
+  // 用量追踪
+  getUsageRecords: AppHooks.GetUsageRecords,
+  getUsageSummary: AppHooks.GetUsageSummary,
+  deleteAllUsage: AppHooks.DeleteAllUsage,
+
+  // Windsurf 清理 & 性能优化
+  getWindsurfDiskUsage: AppHooks.GetWindsurfDiskUsage,
+  cleanupWindsurf: AppHooks.CleanupWindsurf,
+  cleanupStartupCache: AppHooks.CleanupStartupCache,
+  cleanupAllSafe: AppHooks.CleanupAllSafe,
+  getPerformanceTips: AppHooks.GetPerformanceTips,
+  applyPerformanceFix: AppHooks.ApplyPerformanceFix,
+  applyAllPerformanceFixes: AppHooks.ApplyAllPerformanceFixes,
+  getWindsurfProcessInfo: AppHooks.GetWindsurfProcessInfo,
 };

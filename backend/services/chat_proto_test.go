@@ -112,12 +112,13 @@ func TestBuildChatRequestProducesValidProtobuf(t *testing.T) {
 		t.Fatal("BuildChatRequest produced empty protobuf")
 	}
 
-	// 检查有 field 1 (metadata), field 2 (conv_id), field 3 (content)
+	// 新布局: F1=metadata, F3=chat messages, F7=settings, F8=config, F15=conv context, F22=msg_id
 	fieldNums := map[uint64]bool{}
 	for _, f := range fields {
 		fieldNums[f.Number] = true
 	}
-	for _, n := range []uint64{1, 2, 3} {
+	// F1=metadata, F3=chat messages, F7=settings, F8=config, F15=conv context, F22=msg_id
+	for _, n := range []uint64{1, 3, 7, 8, 15, 22} {
 		if !fieldNums[n] {
 			t.Errorf("missing field %d in BuildChatRequest output", n)
 		}
@@ -129,9 +130,10 @@ func TestBuildChatRequestOmitsConversationIDWhenEmpty(t *testing.T) {
 	body := BuildChatRequest(msgs, "sk-ws-key", "jwt", "")
 
 	fields := decodeProtoMessage(body)
+	// conversation_id 现在在 F15 中，空 conv_id 不应有 F15
 	for _, f := range fields {
-		if f.Number == 2 {
-			t.Fatal("field 2 (conversation_id) should be absent when empty")
+		if f.Number == 15 {
+			t.Fatal("field 15 (conversation context) should be absent when conv_id is empty")
 		}
 	}
 }

@@ -5,6 +5,7 @@ import {
   ArrowRightLeft,
   CheckCircle,
   KeyRound,
+  Link2,
   Power,
   Shield,
   ShieldAlert,
@@ -13,6 +14,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-vue-next";
+import SessionPanel from "./SessionPanel.vue";
 import IToggle from "./ios/IToggle.vue";
 import SkeletonOverlay from "./common/SkeletonOverlay.vue";
 import MitmPanelSkeleton from "./common/MitmPanelSkeleton.vue";
@@ -283,7 +285,7 @@ const handleTeardown = async () => {
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2 text-right sm:grid-cols-4">
+        <div class="grid grid-cols-2 gap-2 text-right sm:grid-cols-5">
           <div
             class="rounded-[16px] bg-white/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.06]"
           >
@@ -324,6 +326,20 @@ const handleTeardown = async () => {
               class="mt-1 text-[18px] font-extrabold text-ios-text dark:text-ios-textDark"
             >
               {{ runtimeExhaustedKeys }}
+            </div>
+          </div>
+          <div
+            class="rounded-[16px] bg-white/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.06]"
+          >
+            <div
+              class="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-600 dark:text-violet-300"
+            >
+              会话
+            </div>
+            <div
+              class="mt-1 text-[18px] font-extrabold text-ios-text dark:text-ios-textDark"
+            >
+              {{ status?.session_count ?? 0 }}
             </div>
           </div>
           <div
@@ -686,6 +702,14 @@ const handleTeardown = async () => {
                 >
                   冷却至 {{ formatDateTimeAsiaShanghai(k.cooldown_until) }}
                 </span>
+                <span
+                  v-if="k.bound_session_count > 0"
+                  class="flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300"
+                  :title="`${k.bound_session_count} 个会话绑定到此 Key`"
+                >
+                  <Link2 class="h-2.5 w-2.5" stroke-width="2.4" />
+                  {{ k.bound_session_count }}
+                </span>
                 <component
                   :is="k.has_jwt ? CheckCircle : XCircle"
                   class="h-3.5 w-3.5"
@@ -696,6 +720,7 @@ const handleTeardown = async () => {
             </div>
           </div>
         </div>
+
         <div
           v-else-if="status"
           class="rounded-[20px] border border-dashed border-black/[0.08] bg-black/[0.02] px-4 py-5 text-[13px] text-ios-textSecondary dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-ios-textSecondaryDark"
@@ -719,6 +744,8 @@ const handleTeardown = async () => {
             </div>
           </div>
         </div>
+
+        <SessionPanel />
 
         <div
           v-if="error"

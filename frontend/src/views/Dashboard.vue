@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Globe,
   KeyRound,
+  Link2,
   RefreshCcw,
   ShieldCheck,
   TriangleAlert,
@@ -127,6 +128,17 @@ const topSummaryCards = computed(() => [
       ? "bg-violet-500/10 text-violet-700 dark:text-violet-300"
       : "bg-slate-500/10 text-slate-700 dark:text-slate-300",
     icon: Globe,
+  },
+  {
+    key: "sessions",
+    label: "活跃会话",
+    value: String(mitmStore.status?.session_count ?? 0),
+    detail:
+      (mitmStore.status?.session_count ?? 0) > 0
+        ? `${mitmStore.status?.session_count} 个对话绑定中`
+        : "暂无活跃会话绑定",
+    tone: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+    icon: Link2,
   },
   {
     key: "requests",

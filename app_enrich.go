@@ -379,9 +379,7 @@ func applyAccessErrorStatus(acc *models.Account, err error) {
 			acc.PlanName = "Free"
 		}
 	case strings.Contains(lower, `"code":"permission_denied"`), strings.Contains(lower, "permission denied"):
-		if strings.TrimSpace(strings.ToLower(acc.Status)) == "" {
-			acc.Status = "disabled"
-		}
+		acc.Status = "disabled"
 	}
 }
 

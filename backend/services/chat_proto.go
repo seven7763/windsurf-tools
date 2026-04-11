@@ -26,28 +26,93 @@ func parseProtoFields(data []byte) protoMessage {
 }
 
 // BuildChatRequest 构造 GetChatMessage 的 protobuf 请求体（不含 gRPC 5 字节信封）。
+// 字段布局（基于抓包逆向）：
+//
+//	F1  = metadata (api_key, JWT, client info)
+//	F2  = system prompt (string, 仅 system 消息)
+//	F3  = chat messages (repeated, sub: F2=role(varint), F3=content, F4=index)
+//	F7  = settings varint (15 = 默认)
+//	F8  = generation config (max tokens / stop words)
+//	F21 = model enum string (如 "MODEL_GOOGLE_GEMINI_2_5_FLASH")
+//	F22 = message ID (UUID)
 func BuildChatRequest(messages []ChatMessage, apiKey, jwt, conversationID string) []byte {
+	return BuildChatRequestWithModel(messages, apiKey, jwt, conversationID, "")
+}
+
+// BuildChatRequestWithModel 同 BuildChatRequest，支持指定模型名。
+func BuildChatRequestWithModel(messages []ChatMessage, apiKey, jwt, conversationID, model string) []byte {
 	// F1: metadata
 	metadata := buildChatMetadata(apiKey, jwt)
 	metaField := encodeBytesField(1, metadata)
 
-	// F2: conversation_id
-	var convField []byte
-	if conversationID != "" {
-		convField = utils.EncodeStringField(2, conversationID)
+	// 分离 system 消息和 chat 消息
+	var systemPrompt string
+	var chatMessages []ChatMessage
+	for _, m := range messages {
+		if m.Role == "system" {
+			if systemPrompt != "" {
+				systemPrompt += "\n\n"
+			}
+			systemPrompt += m.Content
+		} else {
+			chatMessages = append(chatMessages, m)
+		}
 	}
-
-	// F3: chat content — 将 messages 拼接为单个用户提示
-	prompt := flattenMessages(messages)
-	contentInner := utils.EncodeStringField(1, prompt)
-	contentField := encodeBytesField(3, contentInner)
 
 	var body []byte
 	body = append(body, metaField...)
-	if len(convField) > 0 {
-		body = append(body, convField...)
+
+	// F2: system prompt (顶层字符串)
+	if systemPrompt != "" {
+		body = append(body, utils.EncodeStringField(2, systemPrompt)...)
 	}
-	body = append(body, contentField...)
+
+	// F3: chat messages (repeated sub-message)
+	// 每条消息: F2=role(varint 1=user,2=bot), F3=content(string), F4=index(varint)
+	for i, m := range chatMessages {
+		var msg []byte
+		role := uint64(1) // user
+		if m.Role == "assistant" {
+			role = 2
+		}
+		msg = append(msg, encodeVarintField(2, role)...)
+		msg = append(msg, utils.EncodeStringField(3, m.Content)...)
+		msg = append(msg, encodeVarintField(4, uint64(i))...)
+		body = append(body, encodeBytesField(3, msg)...)
+	}
+	// 如果没有 chat messages（只有 system），构造一个空 user 消息
+	if len(chatMessages) == 0 && systemPrompt == "" {
+		// 兜底：从所有 messages 拼接
+		prompt := flattenMessages(messages)
+		var msg []byte
+		msg = append(msg, encodeVarintField(2, 1)...) // role=user
+		msg = append(msg, utils.EncodeStringField(3, prompt)...)
+		msg = append(msg, encodeVarintField(4, 0)...)
+		body = append(body, encodeBytesField(3, msg)...)
+	}
+
+	// F7: settings (varint 15 — 开启 streaming)
+	body = append(body, encodeVarintField(7, 15)...)
+
+	// F8: generation config
+	body = append(body, encodeBytesField(8, buildGenerationConfig())...)
+
+	// F15: conversation context（含 conversation_id）
+	if conversationID != "" {
+		var convCtx []byte
+		convCtx = append(convCtx, utils.EncodeStringField(1, conversationID)...)
+		body = append(body, encodeBytesField(15, convCtx)...)
+	}
+
+	// F21: model name (field > 15, 需要 varint tag 编码)
+	modelEnum := mapModelToWindsurfEnum(model)
+	if modelEnum != "" {
+		body = append(body, encodeBytesField(21, []byte(modelEnum))...)
+	}
+
+	// F22: message ID (UUID, field > 15, 需要 varint tag 编码)
+	body = append(body, encodeBytesField(22, []byte(generateUUID()))...)
+
 	return body
 }
 
@@ -227,7 +292,8 @@ func buildChatMetadata(apiKey, jwt string) []byte {
 	meta = append(meta, utils.EncodeStringField(7, WindsurfClient)...)
 	meta = append(meta, utils.EncodeStringField(12, WindsurfAppName)...)
 	if jwt != "" {
-		meta = append(meta, utils.EncodeStringField(21, jwt)...)
+		// F21 > 15, 需要 varint tag 编码（EncodeStringField 只支持 1-15）
+		meta = append(meta, encodeBytesField(21, []byte(jwt))...)
 	}
 	return meta
 }

@@ -25,3 +25,28 @@ func (a *App) GetOpenAIRelayStatus() services.OpenAIRelayStatus {
 	}
 	return a.openaiRelay.Status()
 }
+
+// GetUsageRecords 获取全局调用记录
+func (a *App) GetUsageRecords(limit int) []services.UsageRecord {
+	if a.usageTracker == nil {
+		return nil
+	}
+	return a.usageTracker.GetRecords(limit)
+}
+
+// GetUsageSummary 获取全局调用统计汇总
+func (a *App) GetUsageSummary() services.UsageSummary {
+	if a.usageTracker == nil {
+		return services.UsageSummary{}
+	}
+	return a.usageTracker.GetSummary()
+}
+
+// DeleteAllUsage 清空所有调用记录
+func (a *App) DeleteAllUsage() int {
+	if a.usageTracker == nil {
+		return 0
+	}
+	// Note: usageTracker now handles the DB truncation.
+	return a.usageTracker.DeleteAll()
+}

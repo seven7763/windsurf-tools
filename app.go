@@ -21,6 +21,7 @@ type App struct {
 	patchSvc               *services.PatchService
 	mitmProxy              *services.MitmProxy
 	openaiRelay            *services.OpenAIRelay
+	usageTracker           *services.UsageTracker
 	cancelAutoRefresh      context.CancelFunc
 	cancelAutoQuotaRefresh context.CancelFunc
 	cancelQuotaHotPoll     context.CancelFunc
@@ -58,9 +59,12 @@ func (a *App) initBackend() error {
 	a.patchSvc = services.NewPatchService()
 	// ── 调试日志 ──
 	utils.InitDebugLogger(s.DataDir(), settings.DebugLog)
+	// ── 创建跨服务的用量跟踪器 ──
+	a.usageTracker = services.NewUsageTracker(s.DataDir())
+
 	a.mitmProxy = services.NewMitmProxy(a.windsurfSvc, func(msg string) {
 		utils.DLog("%s", msg)
-	}, proxyURL)
+	}, proxyURL, a.usageTracker)
 	a.mitmProxy.SetOnKeyExhausted(func(apiKey string) {
 		utils.DLog("[回调] onKeyExhausted 触发: key=%s...", apiKey[:min(12, len(apiKey))])
 		accID := findAccountIDForMITMAPIKey(a.store.GetAllAccounts(), apiKey)
@@ -91,9 +95,17 @@ func (a *App) initBackend() error {
 			utils.DLog("[回调] onKeyExhausted: AutoSwitchOnQuotaExhausted=false，不切号")
 		}
 	})
+	a.mitmProxy.SetOnKeyAccessDenied(func(apiKey, detail string) {
+		utils.DLog("[回调] onKeyAccessDenied 触发: key=%s...", apiKey[:min(12, len(apiKey))])
+		a.handleMitmKeyAccessDenied(apiKey, detail)
+	})
+	a.mitmProxy.SetOnCurrentKeyChanged(func(apiKey, reason string) {
+		utils.DLog("[回调] onCurrentKeyChanged 触发: key=%s... reason=%s", apiKey[:min(12, len(apiKey))], reason)
+		a.handleMitmCurrentKeyChanged(apiKey, reason)
+	})
 	a.openaiRelay = services.NewOpenAIRelay(a.mitmProxy, func(msg string) {
 		utils.DLog("%s", msg)
-	}, proxyURL)
+	}, proxyURL, a.usageTracker)
 	a.openaiRelay.SetOnSuccess(func(apiKey string) {
 		accounts := a.store.GetAllAccounts()
 		accID := findAccountIDForMITMAPIKey(accounts, apiKey)
@@ -103,6 +115,8 @@ func (a *App) initBackend() error {
 		_ = a.RefreshAccountQuota(accID)
 	})
 	a.syncMitmPoolKeys()
+	a.syncForgeConfig()
+	a.syncStaticCacheConfig()
 	if settings.AutoRefreshTokens {
 		a.startAutoRefresh()
 	}

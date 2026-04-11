@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  type Component,
   computed,
   defineAsyncComponent,
   nextTick,
@@ -32,42 +33,113 @@ const settings = useSettingsStore();
 const mitmStore = useMitmStatusStore();
 const toolbarMode = ref(false);
 const shellReady = ref(false);
+const mountedViews = ref<ShellViewTab[]>([]);
 let unToolbarEvent: (() => void) | undefined;
 let unVisibilityRefresh: (() => void) | undefined;
+let viewPreloadTimer: ReturnType<typeof setTimeout> | undefined;
+
+type AsyncViewModule = { default: Component };
+
+const viewLoaders: Record<ShellViewTab, () => Promise<AsyncViewModule>> = {
+  Dashboard: () => import("./views/Dashboard.vue"),
+  Accounts: () => import("./views/Accounts.vue"),
+  Usage: () => import("./views/Usage.vue"),
+  Relay: () => import("./views/Relay.vue"),
+  Cleanup: () => import("./views/Cleanup.vue"),
+  Settings: () => import("./views/Settings.vue"),
+};
+
+const preloadedViews = new Set<ShellViewTab>();
 
 const viewRegistry = {
   Dashboard: {
-    component: defineAsyncComponent(() => import("./views/Dashboard.vue")),
+    component: defineAsyncComponent(viewLoaders.Dashboard),
     skeleton: "dashboard",
   },
   Accounts: {
-    component: defineAsyncComponent(() => import("./views/Accounts.vue")),
+    component: defineAsyncComponent(viewLoaders.Accounts),
+    skeleton: "accounts",
+  },
+  Usage: {
+    component: defineAsyncComponent(viewLoaders.Usage),
     skeleton: "accounts",
   },
   Relay: {
-    component: defineAsyncComponent(() => import("./views/Relay.vue")),
+    component: defineAsyncComponent(viewLoaders.Relay),
     skeleton: "relay",
   },
+  Cleanup: {
+    component: defineAsyncComponent(viewLoaders.Cleanup),
+    skeleton: "settings",
+  },
   Settings: {
-    component: defineAsyncComponent(() => import("./views/Settings.vue")),
+    component: defineAsyncComponent(viewLoaders.Settings),
     skeleton: "settings",
   },
 } as const;
 
-const activeViewComponent = computed(() => {
-  const current = mainView.activeTab as ShellViewTab;
-  return (
-    viewRegistry[current]?.component ??
-    viewRegistry[DEFAULT_MAIN_VIEW].component
-  );
-});
+const shellTabs = Object.keys(viewRegistry) as ShellViewTab[];
 
-const activeViewSkeleton = computed(() => {
-  const current = mainView.activeTab as ShellViewTab;
-  return (
-    viewRegistry[current]?.skeleton ?? viewRegistry[DEFAULT_MAIN_VIEW].skeleton
-  );
-});
+const resolveShellViewTab = (value: string | null | undefined): ShellViewTab =>
+  shellTabs.includes(value as ShellViewTab)
+    ? (value as ShellViewTab)
+    : DEFAULT_MAIN_VIEW;
+
+const ensureViewMounted = (tab: ShellViewTab) => {
+  if (!mountedViews.value.includes(tab)) {
+    mountedViews.value = [...mountedViews.value, tab];
+  }
+};
+
+const preloadView = async (tab: ShellViewTab) => {
+  if (preloadedViews.has(tab)) {
+    return;
+  }
+  preloadedViews.add(tab);
+  try {
+    await viewLoaders[tab]();
+  } catch (error) {
+    preloadedViews.delete(tab);
+    console.error(`Failed to preload ${tab} view:`, error);
+  }
+};
+
+const scheduleBackgroundViewPreload = (activeTab?: ShellViewTab) => {
+  if (viewPreloadTimer) {
+    clearTimeout(viewPreloadTimer);
+  }
+  viewPreloadTimer = window.setTimeout(() => {
+    for (const tab of shellTabs) {
+      if (tab !== activeTab) {
+        void preloadView(tab);
+      }
+    }
+  }, 160);
+};
+
+const renderedViews = computed(() =>
+  mountedViews.value.map((tab) => ({
+    key: tab,
+    component: viewRegistry[tab].component,
+    skeleton: viewRegistry[tab].skeleton,
+  })),
+);
+
+watch(
+  () => mainView.activeTab,
+  (value) => {
+    const resolved = resolveShellViewTab(value);
+    if (mainView.activeTab !== resolved) {
+      mainView.activeTab = resolved;
+    }
+    ensureViewMounted(resolved);
+    void preloadView(resolved);
+    if (!toolbarMode.value) {
+      scheduleBackgroundViewPreload(resolved);
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   () => settings.settings?.show_desktop_toolbar,
@@ -104,6 +176,12 @@ onMounted(async () => {
   }
 
   shellReady.value = true;
+  const currentTab = resolveShellViewTab(mainView.activeTab);
+  ensureViewMounted(currentTab);
+  void preloadView(currentTab);
+  if (!toolbarMode.value) {
+    scheduleBackgroundViewPreload(currentTab);
+  }
   mitmStore.startPolling();
   if (!toolbarMode.value) {
     void accounts.ensureAccountsLoaded().catch((error) => {
@@ -140,6 +218,10 @@ onUnmounted(() => {
   mitmStore.stopPolling();
   unToolbarEvent?.();
   unVisibilityRefresh?.();
+  if (viewPreloadTimer) {
+    clearTimeout(viewPreloadTimer);
+    viewPreloadTimer = undefined;
+  }
 });
 </script>
 
@@ -177,17 +259,20 @@ onUnmounted(() => {
             class="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth min-h-0 flex flex-col"
           >
             <div class="flex-1 shrink-0 flex flex-col relative">
-              <Transition name="fade">
-                <Suspense :key="mainView.activeTab">
-                  <component :is="activeViewComponent" />
+              <section
+                v-for="view in renderedViews"
+                :key="view.key"
+                v-show="mainView.activeTab === view.key"
+                class="flex-1 min-h-0 flex flex-col ios-view-surface"
+                :aria-hidden="mainView.activeTab === view.key ? 'false' : 'true'"
+              >
+                <Suspense>
+                  <component :is="view.component" />
                   <template #fallback>
-                    <PageLoadingSkeleton
-                      :variant="activeViewSkeleton"
-                      class="flex-1"
-                    />
+                    <PageLoadingSkeleton :variant="view.skeleton" class="flex-1" />
                   </template>
                 </Suspense>
-              </Transition>
+              </section>
             </div>
             <AppFooter class="mt-auto" />
           </div>
@@ -200,24 +285,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition:
-    opacity 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.fade-leave-active {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  pointer-events: none;
-}
-.fade-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
-}
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-2px);
+.ios-view-surface {
+  contain: layout paint;
 }
 </style>

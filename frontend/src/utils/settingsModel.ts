@@ -59,6 +59,10 @@ export function createDefaultSettings(): models.Settings {
     openai_relay_secret: '',
     debug_log: false,
     import_concurrency: 3,
+    forge_enabled: false,
+    static_cache_intercept: true,
+    mitm_full_capture: false,
+    mitm_debug_dump: false,
   })
 }
 
@@ -96,6 +100,10 @@ export function normalizeSettings(raw: unknown): models.Settings {
     openai_relay_secret: String(s.openai_relay_secret ?? ''),
     debug_log: 'debug_log' in s ? Boolean(s.debug_log) : false,
     import_concurrency: Math.max(1, Math.min(20, Number(s.import_concurrency) || 3)),
+    forge_enabled: 'forge_enabled' in s ? Boolean(s.forge_enabled) : false,
+    static_cache_intercept: 'static_cache_intercept' in s ? Boolean(s.static_cache_intercept) : true,
+    mitm_full_capture: 'mitm_full_capture' in s ? Boolean(s.mitm_full_capture) : false,
+    mitm_debug_dump: 'mitm_debug_dump' in s ? Boolean(s.mitm_debug_dump) : false,
   })
 }
 
@@ -194,6 +202,14 @@ export type SettingsForm = {
   debug_log: boolean
   /** 导入并发数 1～20 */
   import_concurrency: number
+  /** GetUserStatus/GetPlanStatus 伪造为 Enterprise + 无限积分 */
+  forge_enabled: boolean
+  /** 静态响应缓存拦截 (.bin 文件直返) */
+  static_cache_intercept: boolean
+  /** MITM 全量抓包落盘 */
+  mitm_full_capture: boolean
+  /** MITM protobuf dump 诊断 */
+  mitm_debug_dump: boolean
 }
 
 export function settingsToForm(s: models.Settings): SettingsForm {
@@ -221,6 +237,10 @@ export function settingsToForm(s: models.Settings): SettingsForm {
     openai_relay_secret: String(s.openai_relay_secret ?? ''),
     debug_log: (s as any).debug_log === true,
     import_concurrency: Math.max(1, Math.min(20, Number((s as any).import_concurrency) || 3)),
+    forge_enabled: (s as any).forge_enabled === true,
+    static_cache_intercept: (s as any).static_cache_intercept !== false,
+    mitm_full_capture: (s as any).mitm_full_capture === true,
+    mitm_debug_dump: (s as any).mitm_debug_dump === true,
   }
 }
 
@@ -249,6 +269,10 @@ export function formToSettings(form: SettingsForm): models.Settings {
     openai_relay_secret: (form.openai_relay_secret ?? '').trim(),
     debug_log: form.debug_log,
     import_concurrency: Math.max(1, Math.min(20, Math.round(form.import_concurrency) || 3)),
+    forge_enabled: form.forge_enabled,
+    static_cache_intercept: form.static_cache_intercept,
+    mitm_full_capture: form.mitm_full_capture,
+    mitm_debug_dump: form.mitm_debug_dump,
   })
 }
 

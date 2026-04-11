@@ -56,8 +56,11 @@ func windsurfAuthPathCandidatesFor(goos, home, appData, configRoot string) []str
 		if strings.TrimSpace(appData) == "" {
 			appData = filepath.Join(home, "AppData", "Roaming")
 		}
-		base := filepath.Join(appData, ".codeium", "windsurf", "config")
-		return []string{filepath.Join(base, "windsurf_auth.json")}
+		return uniqueCandidatePaths([]string{
+			filepath.Join(appData, ".codeium", "windsurf", "config", "windsurf_auth.json"),
+			filepath.Join(appData, "Windsurf", "User", "globalStorage", "windsurf_auth.json"),
+			filepath.Join(appData, "Codeium", "User", "globalStorage", "windsurf_auth.json"),
+		})
 	case "darwin":
 		return uniqueCandidatePaths([]string{
 			filepath.Join(home, ".codeium", "windsurf", "config", "windsurf_auth.json"),
@@ -114,10 +117,9 @@ func (s *SwitchService) resolveAuthPath() (string, error) {
 	if len(cands) == 0 {
 		return "", fmt.Errorf("无法解析用户主目录")
 	}
-	for _, p := range cands {
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
+	best, err := s.resolveBestAuthState()
+	if err == nil && best != nil {
+		return best.Path, nil
 	}
 	return preferredAuthWritePathFor(runtime.GOOS, cands), nil
 }
@@ -129,11 +131,39 @@ func (s *SwitchService) GetWindsurfAuthPath() (string, error) {
 
 // SwitchAccount writes the token into windsurf_auth.json for seamless switching
 func (s *SwitchService) SwitchAccount(token, email string) error {
-	authPath, err := s.resolveAuthPath()
-	if err != nil {
-		return fmt.Errorf("获取auth路径失败: %w", err)
+	cands := s.windsurfAuthPathCandidates()
+	if len(cands) == 0 {
+		return fmt.Errorf("获取auth路径失败: 无法解析用户主目录")
 	}
-	return WriteAuthFile(authPath, token, email)
+
+	// ★ 读取旧邮箱，只有切换到不同邮箱时才清除 state.vscdb 的旧 session
+	// 同邮箱换 token 不清，避免 IDE 重启后需要重新登录
+	oldEmail := ""
+	if oldAuth, err := s.GetCurrentAuth(); err == nil && oldAuth != nil {
+		oldEmail = strings.TrimSpace(strings.ToLower(oldAuth.Email))
+	}
+	newEmail := strings.TrimSpace(strings.ToLower(email))
+
+	var writeErrs []string
+	for _, authPath := range cands {
+		if err := WriteAuthFile(authPath, token, email); err != nil {
+			writeErrs = append(writeErrs, fmt.Sprintf("%s: %v", authPath, err))
+		}
+	}
+	if len(writeErrs) > 0 {
+		return fmt.Errorf("写入auth文件失败: %s", strings.Join(writeErrs, "; "))
+	}
+
+	// 只有邮箱变化时才清除旧 session 缓存
+	if newEmail != oldEmail {
+		log.Printf("[切号] 邮箱变更 %s → %s，清理旧会话缓存", oldEmail, newEmail)
+		if err := s.clearWindsurfSessionCache(email); err != nil {
+			return fmt.Errorf("清理 Windsurf 本地会话缓存失败: %w", err)
+		}
+	} else {
+		log.Printf("[切号] 同邮箱 %s 换 token，跳过会话缓存清理", newEmail)
+	}
+	return nil
 }
 
 // WriteAuthFile writes a Windsurf auth payload to the given path.
@@ -227,6 +257,7 @@ func writeFileViaPowerShell(filePath string, data []byte) error {
 	escaped := strings.ReplaceAll(string(data), "'", "''")
 	ps := fmt.Sprintf(`[IO.File]::WriteAllText('%s','%s')`, filePath, escaped)
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
+	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("PowerShell写入失败: %w, output: %s", err, string(out))
@@ -234,29 +265,135 @@ func writeFileViaPowerShell(filePath string, data []byte) error {
 	return nil
 }
 
+// ── MITM 原始登录态 备份/恢复 ──
+
+const mitmOrigAuthSuffix = ".mitm_original"
+
+// BackupOriginalAuth 在 MITM 启动时调用，备份所有 windsurf_auth.json 的原始内容。
+// 如果备份文件已存在则跳过（避免多次启动覆盖真正的原始态）。
+func (s *SwitchService) BackupOriginalAuth() {
+	for _, authPath := range s.windsurfAuthPathCandidates() {
+		backupPath := authPath + mitmOrigAuthSuffix
+		if _, err := os.Stat(backupPath); err == nil {
+			continue // 已备份，跳过
+		}
+		data, err := os.ReadFile(authPath)
+		if err != nil {
+			continue // 文件不存在
+		}
+		_ = os.WriteFile(backupPath, data, 0644)
+		log.Printf("[切号] 已备份原始 auth: %s", authPath)
+	}
+}
+
+// RestoreOriginalAuth 在 MITM 退出时调用，恢复所有 windsurf_auth.json 为 MITM 启动前的内容。
+func (s *SwitchService) RestoreOriginalAuth() {
+	for _, authPath := range s.windsurfAuthPathCandidates() {
+		backupPath := authPath + mitmOrigAuthSuffix
+		data, err := os.ReadFile(backupPath)
+		if err != nil {
+			continue // 无备份
+		}
+		if err := os.WriteFile(authPath, data, 0644); err != nil {
+			log.Printf("[切号] 恢复原始 auth 失败: %s: %v", authPath, err)
+			continue
+		}
+		_ = os.Remove(backupPath)
+		log.Printf("[切号] 已恢复原始 auth: %s", authPath)
+	}
+}
+
 // GetCurrentAuth 读取当前登录会话：按候选路径依次尝试，兼容 macOS 多安装路径。
 func (s *SwitchService) GetCurrentAuth() (*WindsurfAuthJSON, error) {
+	best, err := s.resolveBestAuthState()
+	if err != nil {
+		return nil, err
+	}
+	if best == nil {
+		return nil, fmt.Errorf("未找到 windsurf_auth")
+	}
+	return &best.Auth, nil
+}
+
+type authFileState struct {
+	Path    string
+	Auth    WindsurfAuthJSON
+	ModTime time.Time
+}
+
+func (s *SwitchService) resolveBestAuthState() (*authFileState, error) {
 	cands := s.windsurfAuthPathCandidates()
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("无法解析用户主目录")
 	}
+	var best *authFileState
 	var lastErr error
 	for _, authPath := range cands {
-		data, err := os.ReadFile(authPath)
+		state, err := readAuthFileState(authPath)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		var auth WindsurfAuthJSON
-		if err := json.Unmarshal(data, &auth); err != nil {
-			return nil, fmt.Errorf("解析auth文件失败: %w", err)
+		if isNewerAuthState(best, state) {
+			best = state
 		}
-		return &auth, nil
+	}
+	if best != nil {
+		return best, nil
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("读取auth文件失败: %w", lastErr)
 	}
-	return nil, fmt.Errorf("未找到 windsurf_auth")
+	return nil, nil
+}
+
+func readAuthFileState(authPath string) (*authFileState, error) {
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		return nil, err
+	}
+	var auth WindsurfAuthJSON
+	if err := json.Unmarshal(data, &auth); err != nil {
+		return nil, fmt.Errorf("%s: 解析auth文件失败: %w", authPath, err)
+	}
+	info, statErr := os.Stat(authPath)
+	modTime := time.Time{}
+	if statErr == nil {
+		modTime = info.ModTime()
+	}
+	return &authFileState{
+		Path:    authPath,
+		Auth:    auth,
+		ModTime: modTime,
+	}, nil
+}
+
+func isNewerAuthState(current, candidate *authFileState) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	currentStamp := authStateTimestamp(current)
+	candidateStamp := authStateTimestamp(candidate)
+	if candidateStamp != currentStamp {
+		return candidateStamp > currentStamp
+	}
+	return candidate.ModTime.After(current.ModTime)
+}
+
+func authStateTimestamp(state *authFileState) int64 {
+	if state == nil {
+		return 0
+	}
+	if state.Auth.Timestamp > 0 {
+		return state.Auth.Timestamp
+	}
+	if !state.ModTime.IsZero() {
+		return state.ModTime.Unix()
+	}
+	return 0
 }
 
 // TryOpenWindsurfRefreshURIs 尝试唤起 Windsurf 内置的会话刷新（扩展里注册的 path，具体 scheme 随版本可能变化；失败可忽略）。
@@ -281,7 +418,9 @@ func isProtocolHandlerRegistered(scheme string) bool {
 	if runtime.GOOS != "windows" {
 		return true
 	}
-	out, err := exec.Command("reg", "query", `HKCR\`+scheme, "/ve").CombinedOutput()
+	cmd := exec.Command("reg", "query", `HKCR\`+scheme, "/ve")
+	hideWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
 	}
@@ -291,7 +430,9 @@ func isProtocolHandlerRegistered(scheme string) bool {
 func tryOpenURL(u string) {
 	switch runtime.GOOS {
 	case "windows":
-		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+		openCmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
+		hideWindow(openCmd)
+		_ = openCmd.Start()
 	case "darwin":
 		_ = exec.Command("open", u).Start()
 	default:

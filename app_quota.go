@@ -36,6 +36,8 @@ func (a *App) startAutoRefresh() {
 func (a *App) startAutoQuotaRefresh() {
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancelAutoQuotaRefresh = cancel
+	log.Printf("[额度同步] 定时同步已启动 (间隔=5min)")
+	utils.DLog("[额度同步] 定时同步已启动 (间隔=5min)")
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -43,6 +45,7 @@ func (a *App) startAutoQuotaRefresh() {
 		for {
 			select {
 			case <-ctx.Done():
+				utils.DLog("[额度同步] 定时同步已停止")
 				return
 			case <-ticker.C:
 				a.refreshDueQuotas()
@@ -329,6 +332,7 @@ func (a *App) refreshDueQuotas() {
 
 	settings := a.store.GetSettings()
 	if !settings.AutoRefreshQuotas {
+		utils.DLog("[额度同步] AutoRefreshQuotas=false，跳过")
 		return
 	}
 	policy := strings.TrimSpace(settings.QuotaRefreshPolicy)
@@ -340,6 +344,7 @@ func (a *App) refreshDueQuotas() {
 	accounts := a.store.GetAllAccounts()
 	svc := a.windsurfSvc
 	if svc == nil {
+		utils.DLog("[额度同步] windsurfSvc=nil，跳过")
 		return
 	}
 	dueAccounts := make([]models.Account, 0, len(accounts))
@@ -353,6 +358,7 @@ func (a *App) refreshDueQuotas() {
 		}
 		dueAccounts = append(dueAccounts, acc)
 	}
+	utils.DLog("[额度同步] policy=%s 总账号=%d due=%d", policy, len(accounts), len(dueAccounts))
 	pause := refreshBatchPause(settings.ConcurrentLimit)
 	outcomes := runAccountRefreshBatches(dueAccounts, settings.ConcurrentLimit, pause, func(acc models.Account) accountRefreshOutcome {
 		copyAcc := acc
@@ -367,13 +373,18 @@ func (a *App) refreshDueQuotas() {
 			updated: true,
 		}
 	})
+	var updatedCount int
 	for _, outcome := range outcomes {
 		if !outcome.updated {
 			continue
 		}
 		if err := a.store.UpdateAccount(outcome.account); err == nil {
 			updatedPool = true
+			updatedCount++
 		}
+	}
+	if len(dueAccounts) > 0 {
+		utils.DLog("[额度同步] 完成: 更新=%d/%d updatedPool=%v", updatedCount, len(dueAccounts), updatedPool)
 	}
 
 	if settings.AutoSwitchOnQuotaExhausted {
@@ -503,6 +514,8 @@ func (a *App) syncAccountCredentialsWithService(svc *services.WindsurfService, a
 		}
 		utils.DLog("[凭证] %s JWT获取失败(APIKey): %v", label, lastErr)
 		log.Printf("[切号] %s JWT获取失败(APIKey): %v", label, lastErr)
+		acc.Token = ""
+		acc.TokenExpiresAt = ""
 		applyAccessErrorStatus(acc, lastErr)
 		return
 	}

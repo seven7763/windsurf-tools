@@ -138,7 +138,10 @@ func (s *WindsurfService) LoginWithEmail(email, password string) (*FirebaseSignI
 	if err != nil {
 		return nil, fmt.Errorf("编码登录请求失败: %w", err)
 	}
-	resp, err := s.client.Post(apiURL, "application/json", bytes.NewReader(bodyJSON))
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewReader(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Referer", "https://windsurf.com/")
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("登录请求失败(网络): %w", err)
 	}
@@ -182,7 +185,10 @@ func (s *WindsurfService) GetAccountInfo(idToken string) (string, error) {
 		"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=%s", FirebaseAPIKey,
 	)
 	body := fmt.Sprintf(`{"idToken":"%s"}`, idToken)
-	resp, err := s.client.Post(apiURL, "application/json", strings.NewReader(body))
+	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Referer", "https://windsurf.com/")
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("查询账号信息失败: %w", err)
 	}

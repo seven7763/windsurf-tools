@@ -6,13 +6,25 @@ import {services} from '../models';
 
 export function AddSingleAccount(arg1:string,arg2:string,arg3:string):Promise<main.ImportResult>;
 
+export function ApplyAllPerformanceFixes():Promise<Record<string, string>>;
+
+export function ApplyPerformanceFix(arg1:Array<string>):Promise<Record<string, string>>;
+
 export function ApplyToolbarLayout(arg1:boolean):Promise<void>;
+
+export function CleanupAllSafe():Promise<Array<main.CleanupResult>>;
+
+export function CleanupStartupCache():Promise<Array<main.CleanupResult>>;
+
+export function CleanupWindsurf(arg1:Array<string>):Promise<Array<main.CleanupResult>>;
 
 export function ControlBackgroundService(arg1:string):Promise<void>;
 
 export function DeleteAccount(arg1:string):Promise<void>;
 
 export function DeleteAccountsByGroup(arg1:string):Promise<number>;
+
+export function DeleteAllUsage():Promise<number>;
 
 export function DeleteExpiredAccounts():Promise<number>;
 
@@ -26,19 +38,37 @@ export function GetAllAccounts():Promise<Array<models.Account>>;
 
 export function GetBackgroundServiceStatus():Promise<main.BackgroundServiceStatus>;
 
+export function GetCaptureDir():Promise<string>;
+
 export function GetDesktopRuntimeStatus():Promise<main.DesktopRuntimeStatus>;
 
 export function GetMitmCAPath():Promise<string>;
 
 export function GetMitmDebugDumpEnabled():Promise<boolean>;
 
+export function GetMitmFullCaptureEnabled():Promise<boolean>;
+
 export function GetMitmProxyStatus():Promise<services.MitmProxyStatus>;
 
+export function GetMitmSessionBindings():Promise<Array<services.SessionBindingInfo>>;
+
 export function GetOpenAIRelayStatus():Promise<services.OpenAIRelayStatus>;
+
+export function GetPerformanceTips():Promise<Array<main.PerformanceTip>>;
 
 export function GetProtoDumpDir():Promise<string>;
 
 export function GetSettings():Promise<models.Settings>;
+
+export function GetStaticCacheDir():Promise<string>;
+
+export function GetUsageRecords(arg1:number):Promise<Array<services.UsageRecord>>;
+
+export function GetUsageSummary():Promise<services.UsageSummary>;
+
+export function GetWindsurfDiskUsage():Promise<main.WindsurfDiskUsage>;
+
+export function GetWindsurfProcessInfo():Promise<Array<Record<string, any>>>;
 
 export function ImportByAPIKey(arg1:Array<main.APIKeyItem>):Promise<Array<main.ImportResult>>;
 
@@ -77,5 +107,9 @@ export function SwitchMitmToNext():Promise<string>;
 export function TeardownMitm():Promise<void>;
 
 export function ToggleMitmDebugDump(arg1:boolean):Promise<void>;
+
+export function ToggleMitmFullCapture(arg1:boolean):Promise<void>;
+
+export function UnbindMitmSession(arg1:string):Promise<boolean>;
 
 export function UpdateSettings(arg1:models.Settings):Promise<void>;

@@ -26,6 +26,7 @@ const relayStore = useRelayStatusStore();
 const relayLoading = ref(false);
 const testResult = ref("");
 const testLoading = ref(false);
+const relayDefaultModel = "cascade";
 
 const relayPort = computed(
   () => settingsStore.settings?.openai_relay_port || 8787,
@@ -85,7 +86,7 @@ const copyText = (text: string, label: string) => {
 const curlCmd = computed(() => {
   const secret = relaySecret.value;
   const auth = secret ? ` -H "Authorization: Bearer ${secret}"` : "";
-  return `curl "${endpoint.value}"${auth} -H "Content-Type: application/json" -d "{\\"model\\":\\"claude-3.5-sonnet\\",\\"stream\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hello\\"}]}"`;
+  return `curl "${endpoint.value}"${auth} -H "Content-Type: application/json" -d "{\\"model\\":\\"${relayDefaultModel}\\",\\"stream\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hello\\"}]}"`;
 });
 
 const pythonExample = computed(() => {
@@ -101,7 +102,7 @@ ${authLine}
 )
 
 stream = client.chat.completions.create(
-    model="claude-3.5-sonnet",
+    model="${relayDefaultModel}",
     messages=[{"role": "user", "content": "hello"}],
     stream=True,
 )
@@ -128,7 +129,7 @@ const handleTest = async () => {
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: "claude-3.5-sonnet",
+        model: relayDefaultModel,
         stream: false,
         messages: [{ role: "user", content: 'Say "hello" in one word.' }],
       }),
@@ -136,8 +137,8 @@ const handleTest = async () => {
     const data = await resp.json();
     if (data.error) {
       testResult.value = `❌ 错误: ${data.error.message || JSON.stringify(data.error)}`;
-    } else if (data.choices?.[0]?.message?.content) {
-      testResult.value = `✅ 成功: ${data.choices[0].message.content.slice(0, 200)}`;
+    } else if (data.choices?.[0]?.message?.content !== undefined) {
+      testResult.value = `✅ 成功: ${data.choices[0].message.content.slice(0, 200) || '(空回复)'}`;
     } else {
       testResult.value = `⚠️ 未知响应: ${JSON.stringify(data).slice(0, 300)}`;
     }
@@ -420,10 +421,10 @@ const handleTest = async () => {
                   <div class="mt-1 flex flex-wrap gap-1.5">
                     <span
                       v-for="m in [
+                        'cascade',
                         'gpt-4',
                         'gpt-4o',
-                        'claude-3.5-sonnet',
-                        'cascade',
+                        'claude-sonnet-4.6',
                       ]"
                       :key="m"
                       class="rounded-full bg-black/[0.04] px-2 py-0.5 text-[10px] font-bold tracking-wide text-ios-textSecondary dark:bg-white/[0.06] dark:text-ios-textSecondaryDark"

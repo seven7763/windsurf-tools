@@ -48,6 +48,7 @@ func runCommandWithPrivilege(target string, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	cmd := privilegeCommand(name, finalArgs...)
+	hideWindow(cmd)
 	output, runErr := cmd.CombinedOutput()
 	if runErr != nil {
 		return output, fmt.Errorf("%s %s: %w", name, strings.Join(finalArgs, " "), runErr)

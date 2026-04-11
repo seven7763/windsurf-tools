@@ -120,6 +120,22 @@ export const useMitmStatusStore = defineStore("mitmStatus", () => {
     }
   };
 
+  const sessionCount = () => status.value?.session_count ?? 0;
+  const activeSessions = () => status.value?.active_sessions ?? [];
+
+  const unbindSession = async (convIDPrefix: string) => {
+    try {
+      const ok = await APIInfo.unbindMitmSession(convIDPrefix);
+      if (ok) {
+        await fetchStatus(true);
+      }
+      return ok;
+    } catch (e) {
+      console.error("UnbindMitmSession error:", e);
+      return false;
+    }
+  };
+
   return {
     status,
     isLoading,
@@ -133,5 +149,8 @@ export const useMitmStatusStore = defineStore("mitmStatus", () => {
     stopPolling,
     switchToNext,
     switchToAccount,
+    sessionCount,
+    activeSessions,
+    unbindSession,
   };
 });

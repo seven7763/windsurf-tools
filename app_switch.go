@@ -328,11 +328,35 @@ func (a *App) rotateMitmToNextAvailable(currentID string, planFilter string) (mo
 		return models.Account{}, fmt.Errorf("预热后无可用 MITM 候选账号（候选均已耗尽）")
 	}
 
-	acc := freshCandidates[0]
-	utils.DLog("[切号] rotateMitm: 切换到 %s (key=%s...)", acc.Email, acc.WindsurfAPIKey[:min(12, len(acc.WindsurfAPIKey))])
-	if !a.mitmProxy.SwitchToKey(acc.WindsurfAPIKey) {
-		return models.Account{}, fmt.Errorf("MITM 代理未找到目标 API Key")
+	var lastErr error
+	for _, acc := range freshCandidates {
+		prepared, err := a.prepareAccountForUsage(acc)
+		if err != nil {
+			utils.DLog("[切号] rotateMitm 跳过 %s: %v", acc.Email, err)
+			lastErr = err
+			continue
+		}
+		apiKey := strings.TrimSpace(prepared.WindsurfAPIKey)
+		if apiKey == "" {
+			lastErr = fmt.Errorf("该账号没有 API Key，已跳过")
+			continue
+		}
+		utils.DLog("[切号] rotateMitm: 切换到 %s (key=%s...)", prepared.Email, apiKey[:min(12, len(apiKey))])
+		if !a.mitmProxy.SwitchToKey(apiKey) {
+			lastErr = fmt.Errorf("MITM 代理未找到目标 API Key")
+			continue
+		}
+		if err := a.syncMitmLocalAuth(prepared); err != nil {
+			utils.DLog("[切号] rotateMitm 同步本地 auth 失败 %s: %v", prepared.Email, err)
+			lastErr = err
+			continue
+		}
+		utils.DLog("[切号] rotateMitm 同步本地 auth 成功: %s", prepared.Email)
+		go a.applyPostWindsurfSwitch()
+		return prepared, nil
 	}
-	_ = services.InjectCodeiumConfig(acc.WindsurfAPIKey)
-	return acc, nil
+	if lastErr != nil {
+		return models.Account{}, lastErr
+	}
+	return models.Account{}, fmt.Errorf("无可用 MITM 候选账号")
 }

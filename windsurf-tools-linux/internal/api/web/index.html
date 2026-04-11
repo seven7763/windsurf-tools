@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Windsurf Tools Linux</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero__backdrop"></div>
+        <div class="hero__content">
+          <p class="eyebrow">Linux Control Plane</p>
+          <div class="hero__row">
+            <div>
+              <h1>账号与额度控制台</h1>
+              <p class="hero__lead">
+                复用当前 `accounts.json / settings.json`，做本地账号管理和额度快照维护，不接管流量，不做自动轮换。
+              </p>
+            </div>
+            <div class="hero__meta">
+              <div class="hero__meta-card">
+                <span>数据目录</span>
+                <strong id="dataDir">加载中</strong>
+              </div>
+              <div class="hero__meta-card">
+                <span>生成时间</span>
+                <strong id="generatedAt">加载中</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel panel--summary">
+          <div class="panel__head">
+            <div>
+              <p class="panel__eyebrow">Overview</p>
+              <h2>账号池概览</h2>
+            </div>
+            <button id="refreshButton" class="button button--ghost" type="button">刷新</button>
+          </div>
+          <div id="summaryGrid" class="summary-grid"></div>
+          <div class="compatibility">
+            <p class="compatibility__title">兼容边界</p>
+            <ul id="compatibilityList"></ul>
+          </div>
+        </section>
+
+        <section class="workspace">
+          <section class="panel panel--table">
+            <div class="panel__head panel__head--stack">
+              <div>
+                <p class="panel__eyebrow">Inventory</p>
+                <h2>账号清单</h2>
+              </div>
+              <div class="toolbar">
+                <input id="searchInput" class="search" type="search" placeholder="搜索邮箱、昵称、标签、备注" />
+                <button id="newAccountButton" class="button" type="button">新建账号</button>
+              </div>
+            </div>
+
+            <div class="plan-strip">
+              <span class="plan-strip__label">计划分布</span>
+              <div id="planCounts" class="plan-strip__items"></div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>账号</th>
+                    <th>套餐</th>
+                    <th>额度</th>
+                    <th>凭证覆盖</th>
+                    <th>状态</th>
+                    <th>到期</th>
+                  </tr>
+                </thead>
+                <tbody id="accountRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="panel panel--editor">
+            <div class="panel__head">
+              <div>
+                <p class="panel__eyebrow">Editor</p>
+                <h2 id="editorTitle">新建账号</h2>
+              </div>
+            </div>
+
+            <form id="accountForm" class="editor">
+              <input id="accountId" type="hidden" />
+              <label>
+                <span>邮箱</span>
+                <input id="email" name="email" required />
+              </label>
+              <label>
+                <span>昵称</span>
+                <input id="nickname" name="nickname" />
+              </label>
+              <div class="editor__grid">
+                <label>
+                  <span>套餐</span>
+                  <input id="planName" name="plan_name" placeholder="trial / pro / teams" />
+                </label>
+                <label>
+                  <span>状态</span>
+                  <input id="status" name="status" placeholder="active" />
+                </label>
+              </div>
+              <div class="editor__grid">
+                <label>
+                  <span>已用额度</span>
+                  <input id="usedQuota" name="used_quota" type="number" min="0" />
+                </label>
+                <label>
+                  <span>总额度</span>
+                  <input id="totalQuota" name="total_quota" type="number" min="0" />
+                </label>
+              </div>
+              <div class="editor__grid">
+                <label>
+                  <span>日剩余</span>
+                  <input id="dailyRemaining" name="daily_remaining" placeholder="85%" />
+                </label>
+                <label>
+                  <span>周剩余</span>
+                  <input id="weeklyRemaining" name="weekly_remaining" placeholder="42%" />
+                </label>
+              </div>
+              <div class="editor__grid">
+                <label>
+                  <span>日重置</span>
+                  <input id="dailyResetAt" name="daily_reset_at" placeholder="RFC3339 时间" />
+                </label>
+                <label>
+                  <span>周重置</span>
+                  <input id="weeklyResetAt" name="weekly_reset_at" placeholder="RFC3339 时间" />
+                </label>
+              </div>
+              <label>
+                <span>订阅到期</span>
+                <input id="subscriptionExpiresAt" name="subscription_expires_at" placeholder="RFC3339 时间" />
+              </label>
+              <div class="editor__grid">
+                <label>
+                  <span>JWT</span>
+                  <textarea id="token" name="token" rows="3"></textarea>
+                </label>
+                <label>
+                  <span>Refresh Token</span>
+                  <textarea id="refreshToken" name="refresh_token" rows="3"></textarea>
+                </label>
+              </div>
+              <label>
+                <span>API Key</span>
+                <textarea id="apiKey" name="windsurf_api_key" rows="2"></textarea>
+              </label>
+              <label>
+                <span>标签</span>
+                <input id="tags" name="tags" placeholder="例如: active,linux" />
+              </label>
+              <label>
+                <span>备注</span>
+                <textarea id="remark" name="remark" rows="4"></textarea>
+              </label>
+              <div class="editor__actions">
+                <button class="button" type="submit">保存</button>
+                <button id="deleteButton" class="button button--danger" type="button" disabled>删除</button>
+                <button id="resetButton" class="button button--ghost" type="button">清空</button>
+              </div>
+            </form>
+
+            <section class="settings-card">
+              <p class="settings-card__title">当前安全可见设置</p>
+              <div id="settingsPreview" class="settings-card__items"></div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

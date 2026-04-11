@@ -18,6 +18,7 @@ import {
   normalizeSwitchPlanFilter,
   quotaPolicyOptions,
   settingsToForm,
+  switchPlanFilterToneOptions,
   type SettingsForm,
 } from "../utils/settingsModel";
 import PageLoadingSkeleton from "../components/common/PageLoadingSkeleton.vue";
@@ -116,6 +117,33 @@ const serviceLastLogToneClass = (tone?: string) => {
   }
 };
 const local = reactive<SettingsForm>(settingsToForm(createDefaultSettings()));
+
+// ── 套餐多选 checkbox helpers ──
+const planFilterSet = computed(() => {
+  const v = local.auto_switch_plan_filter;
+  if (!v || v === 'all') return new Set<string>();
+  return new Set(v.split(',').map((s) => s.trim()).filter(Boolean));
+});
+const planFilterActive = (tone: string) => {
+  const s = planFilterSet.value;
+  return s.size === 0 || s.has(tone);
+};
+const togglePlanFilter = (tone: string) => {
+  const current = planFilterSet.value;
+  const allTones = switchPlanFilterToneOptions.map((o) => o.value);
+  if (current.size === 0) {
+    // currently "all" → uncheck this one = select everything except this
+    const next = allTones.filter((t) => t !== tone);
+    local.auto_switch_plan_filter = normalizeSwitchPlanFilter(next.join(','));
+  } else if (current.has(tone)) {
+    current.delete(tone);
+    local.auto_switch_plan_filter = normalizeSwitchPlanFilter([...current].join(',') || 'all');
+  } else {
+    current.add(tone);
+    // if all selected → normalize to "all"
+    local.auto_switch_plan_filter = normalizeSwitchPlanFilter([...current].join(','));
+  }
+};
 
 onMounted(() => {
   void settingsStore.fetchSettings();
@@ -1557,6 +1585,48 @@ onUnmounted(() => {
             </div>
 
             <div
+              class="p-5 sm:p-6 flex flex-col gap-4 border-b border-black/[0.04] dark:border-white/[0.04]"
+              v-if="
+                local.auto_refresh_quotas &&
+                local.auto_switch_on_quota_exhausted
+              "
+            >
+              <div>
+                <div
+                  class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1"
+                >
+                  自动切号套餐范围
+                </div>
+                <div
+                  class="text-[13px] text-gray-500 dark:text-gray-400 leading-relaxed font-medium"
+                >
+                  勾选允许自动轮换到哪些套餐类型，全选或不选等同于「不限制」。
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <label
+                  v-for="opt in switchPlanFilterToneOptions"
+                  :key="opt.value"
+                  @click.prevent="togglePlanFilter(opt.value)"
+                  class="no-drag-region inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[13px] font-semibold cursor-pointer select-none transition-all duration-150"
+                  :class="planFilterActive(opt.value)
+                    ? 'bg-ios-blue/10 dark:bg-ios-blue/20 border-ios-blue/40 text-ios-blue shadow-sm'
+                    : 'bg-gray-100 dark:bg-white/5 border-black/5 dark:border-white/10 text-gray-500 dark:text-gray-400 hover:bg-gray-200/70 dark:hover:bg-white/10'"
+                >
+                  <span
+                    class="w-3.5 h-3.5 rounded-[4px] border-2 flex items-center justify-center transition-colors"
+                    :class="planFilterActive(opt.value)
+                      ? 'border-ios-blue bg-ios-blue'
+                      : 'border-gray-300 dark:border-gray-600'"
+                  >
+                    <svg v-if="planFilterActive(opt.value)" class="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  </span>
+                  {{ opt.label }}
+                </label>
+              </div>
+            </div>
+
+            <div
               class="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.04] dark:border-white/[0.04]"
               v-if="
                 local.auto_refresh_quotas &&
@@ -1661,6 +1731,70 @@ onUnmounted(() => {
                 </div>
               </div>
               <IToggle v-model="local.debug_log" />
+            </div>
+          </div>
+        </section>
+
+        <!-- 高级抓包与伪造专区 -->
+        <section>
+          <h2 class="text-[13px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 px-2">
+            高级抓包与诊断配置
+          </h2>
+          <div class="bg-white/70 dark:bg-[#1C1C1E]/70 ios-glass rounded-[24px] border border-black/[0.04] dark:border-white/[0.04] shadow-[0_2px_12px_rgba(0,0,0,0.02)] overflow-hidden">
+            <div
+              class="p-5 sm:p-6 flex items-center justify-between gap-4 border-b border-black/[0.04] dark:border-white/[0.04]"
+            >
+              <div class="flex-1 pr-4">
+                <div class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1">
+                  全量离线抓包 (Full Capture)
+                </div>
+                <div class="text-[13px] text-gray-500 dark:text-gray-400">
+                  记录代理过程中所有会话日志并落盘存入 <code>capture/</code> 目录下（JSONL 序列化）。
+                </div>
+              </div>
+              <IToggle v-model="local.mitm_full_capture" />
+            </div>
+
+            <div
+              class="p-5 sm:p-6 flex items-center justify-between gap-4 border-b border-black/[0.04] dark:border-white/[0.04]"
+            >
+              <div class="flex-1 pr-4">
+                <div class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1">
+                  Protobuf 深度解包 (Debug Dump)
+                </div>
+                <div class="text-[13px] text-gray-500 dark:text-gray-400">
+                  开启后将在底层将特权结构体与未知节点 dump 至 <code>proto_dumps/</code> 以供二次逆向研究。
+                </div>
+              </div>
+              <IToggle v-model="local.mitm_debug_dump" />
+            </div>
+
+            <div
+              class="p-5 sm:p-6 flex items-center justify-between gap-4 border-b border-black/[0.04] dark:border-white/[0.04]"
+            >
+              <div class="flex-1 pr-4">
+                <div class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1">
+                  静态资源高速缓存拦截 (Cache Intercept)
+                </div>
+                <div class="text-[13px] text-gray-500 dark:text-gray-400">
+                  内置直返 Codeium Bin 预构建离线缓存，减少跨域拉取耗时。
+                </div>
+              </div>
+              <IToggle v-model="local.static_cache_intercept" />
+            </div>
+
+            <div
+              class="p-5 sm:p-6 flex items-center justify-between gap-4 bg-amber-500/[0.03]"
+            >
+              <div class="flex-1 pr-4">
+                <div class="text-[15px] font-bold text-gray-900 dark:text-gray-100 mb-1 flex items-center gap-2">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> GetUserStatus伪装 (Forge)
+                </div>
+                <div class="text-[13px] text-gray-500 dark:text-gray-400">
+                  强制劫盖响应，伪造为企业版无限额度状态（可能导致服务端反爬锁号，谨慎使用）。
+                </div>
+              </div>
+              <IToggle v-model="local.forge_enabled" />
             </div>
           </div>
         </section>

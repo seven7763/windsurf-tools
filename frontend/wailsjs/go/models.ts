@@ -56,6 +56,52 @@ export namespace main {
 	        this.recent_error_count = source["recent_error_count"];
 	    }
 	}
+	export class CleanupCategory {
+	    id: string;
+	    name: string;
+	    description: string;
+	    size_bytes: number;
+	    size_human: string;
+	    file_count: number;
+	    safe: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanupCategory(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.size_bytes = source["size_bytes"];
+	        this.size_human = source["size_human"];
+	        this.file_count = source["file_count"];
+	        this.safe = source["safe"];
+	    }
+	}
+	export class CleanupResult {
+	    category: string;
+	    success: boolean;
+	    freed_bytes: number;
+	    freed_human: string;
+	    deleted_dirs: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanupResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.category = source["category"];
+	        this.success = source["success"];
+	        this.freed_bytes = source["freed_bytes"];
+	        this.freed_human = source["freed_human"];
+	        this.deleted_dirs = source["deleted_dirs"];
+	        this.error = source["error"];
+	    }
+	}
 	export class DesktopRuntimeStatus {
 	    status: string;
 	    detail: string;
@@ -134,6 +180,26 @@ export namespace main {
 	        this.remark = source["remark"];
 	    }
 	}
+	export class PerformanceTip {
+	    id: string;
+	    title: string;
+	    description: string;
+	    impact: string;
+	    auto_fix: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PerformanceTip(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.impact = source["impact"];
+	        this.auto_fix = source["auto_fix"];
+	    }
+	}
 	export class TokenItem {
 	    token: string;
 	    remark: string;
@@ -147,6 +213,40 @@ export namespace main {
 	        this.token = source["token"];
 	        this.remark = source["remark"];
 	    }
+	}
+	export class WindsurfDiskUsage {
+	    categories: CleanupCategory[];
+	    total_bytes: number;
+	    total_human: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WindsurfDiskUsage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.categories = this.convertValues(source["categories"], CleanupCategory);
+	        this.total_bytes = source["total_bytes"];
+	        this.total_human = source["total_human"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -227,6 +327,15 @@ export namespace models {
 	    mitm_tun_mode: boolean;
 	    mitm_proxy_enabled: boolean;
 	    mitm_debug_dump: boolean;
+	    mitm_full_capture: boolean;
+	    static_cache_intercept: boolean;
+	    forge_enabled: boolean;
+	    fake_credits: number;
+	    fake_credits_premium: number;
+	    fake_credits_other: number;
+	    fake_credits_used: number;
+	    fake_subscription_type: string;
+	    fake_billing_extend_years: number;
 	    debug_log: boolean;
 	    import_concurrency: number;
 	    openai_relay_enabled: boolean;
@@ -258,6 +367,15 @@ export namespace models {
 	        this.mitm_tun_mode = source["mitm_tun_mode"];
 	        this.mitm_proxy_enabled = source["mitm_proxy_enabled"];
 	        this.mitm_debug_dump = source["mitm_debug_dump"];
+	        this.mitm_full_capture = source["mitm_full_capture"];
+	        this.static_cache_intercept = source["static_cache_intercept"];
+	        this.forge_enabled = source["forge_enabled"];
+	        this.fake_credits = source["fake_credits"];
+	        this.fake_credits_premium = source["fake_credits_premium"];
+	        this.fake_credits_other = source["fake_credits_other"];
+	        this.fake_credits_used = source["fake_credits_used"];
+	        this.fake_subscription_type = source["fake_subscription_type"];
+	        this.fake_billing_extend_years = source["fake_billing_extend_years"];
 	        this.debug_log = source["debug_log"];
 	        this.import_concurrency = source["import_concurrency"];
 	        this.openai_relay_enabled = source["openai_relay_enabled"];
@@ -286,9 +404,32 @@ export namespace services {
 	        this.tone = source["tone"];
 	    }
 	}
+	export class SessionBindingInfo {
+	    conv_id_short: string;
+	    pool_key_short: string;
+	    bound_at: string;
+	    last_seen_at: string;
+	    request_count: number;
+	    title: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionBindingInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conv_id_short = source["conv_id_short"];
+	        this.pool_key_short = source["pool_key_short"];
+	        this.bound_at = source["bound_at"];
+	        this.last_seen_at = source["last_seen_at"];
+	        this.request_count = source["request_count"];
+	        this.title = source["title"];
+	    }
+	}
 	export class PoolKeyInfo {
 	    key_short: string;
 	    healthy: boolean;
+	    disabled: boolean;
 	    runtime_exhausted: boolean;
 	    cooldown_until: string;
 	    has_jwt: boolean;
@@ -296,6 +437,9 @@ export namespace services {
 	    success_count: number;
 	    total_exhausted: number;
 	    is_current: boolean;
+	    bound_session_count: number;
+	    email?: string;
+	    nickname?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PoolKeyInfo(source);
@@ -305,6 +449,7 @@ export namespace services {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key_short = source["key_short"];
 	        this.healthy = source["healthy"];
+	        this.disabled = source["disabled"];
 	        this.runtime_exhausted = source["runtime_exhausted"];
 	        this.cooldown_until = source["cooldown_until"];
 	        this.has_jwt = source["has_jwt"];
@@ -312,6 +457,9 @@ export namespace services {
 	        this.success_count = source["success_count"];
 	        this.total_exhausted = source["total_exhausted"];
 	        this.is_current = source["is_current"];
+	        this.bound_session_count = source["bound_session_count"];
+	        this.email = source["email"];
+	        this.nickname = source["nickname"];
 	    }
 	}
 	export class MitmProxyStatus {
@@ -322,6 +470,8 @@ export namespace services {
 	    current_key: string;
 	    pool_status: PoolKeyInfo[];
 	    total_requests: number;
+	    active_sessions: SessionBindingInfo[];
+	    session_count: number;
 	    last_error_kind: string;
 	    last_error_summary: string;
 	    last_error_at: string;
@@ -341,6 +491,8 @@ export namespace services {
 	        this.current_key = source["current_key"];
 	        this.pool_status = this.convertValues(source["pool_status"], PoolKeyInfo);
 	        this.total_requests = source["total_requests"];
+	        this.active_sessions = this.convertValues(source["active_sessions"], SessionBindingInfo);
+	        this.session_count = source["session_count"];
 	        this.last_error_kind = source["last_error_kind"];
 	        this.last_error_summary = source["last_error_summary"];
 	        this.last_error_at = source["last_error_at"];
@@ -380,6 +532,72 @@ export namespace services {
 	        this.running = source["running"];
 	        this.port = source["port"];
 	        this.url = source["url"];
+	    }
+	}
+	
+	
+	export class UsageRecord {
+	    id: string;
+	    at: string;
+	    model: string;
+	    request_model: string;
+	    prompt_tokens: number;
+	    completion_tokens: number;
+	    total_tokens: number;
+	    duration_ms: number;
+	    api_key_short: string;
+	    status: string;
+	    error_detail?: string;
+	    format: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UsageRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.at = source["at"];
+	        this.model = source["model"];
+	        this.request_model = source["request_model"];
+	        this.prompt_tokens = source["prompt_tokens"];
+	        this.completion_tokens = source["completion_tokens"];
+	        this.total_tokens = source["total_tokens"];
+	        this.duration_ms = source["duration_ms"];
+	        this.api_key_short = source["api_key_short"];
+	        this.status = source["status"];
+	        this.error_detail = source["error_detail"];
+	        this.format = source["format"];
+	    }
+	}
+	export class UsageSummary {
+	    total_requests: number;
+	    total_prompt_tokens: number;
+	    total_completion_tokens: number;
+	    total_tokens: number;
+	    by_model: Record<string, number>;
+	    by_model_tokens: Record<string, number>;
+	    by_date: Record<string, number>;
+	    by_date_tokens: Record<string, number>;
+	    error_count: number;
+	    estimated_cost_usd: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UsageSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_requests = source["total_requests"];
+	        this.total_prompt_tokens = source["total_prompt_tokens"];
+	        this.total_completion_tokens = source["total_completion_tokens"];
+	        this.total_tokens = source["total_tokens"];
+	        this.by_model = source["by_model"];
+	        this.by_model_tokens = source["by_model_tokens"];
+	        this.by_date = source["by_date"];
+	        this.by_date_tokens = source["by_date_tokens"];
+	        this.error_count = source["error_count"];
+	        this.estimated_cost_usd = source["estimated_cost_usd"];
 	    }
 	}
 

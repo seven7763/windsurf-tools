@@ -499,11 +499,17 @@ const isCurrentOnline = (acc: models.Account) => {
   return Boolean(findMitmPoolRuntime(acc)?.is_current);
 };
 
+const getBoundSessionCount = (acc: models.Account) => {
+  const runtime = findMitmPoolRuntime(acc);
+  return runtime?.bound_session_count ?? 0;
+};
+
 type CardStateTone = "online" | "ready" | "warning" | "danger" | "pending";
 
 const getCardStateMeta = (
   acc: models.Account,
 ): { tone: CardStateTone; label: string } => {
+  // 1. 运行时见底（MITM 代理标记的实时额度耗尽）优先
   const mitmRuntime = findMitmPoolRuntime(acc);
   if (mitmRuntime?.runtime_exhausted) {
     return {
@@ -511,6 +517,8 @@ const getCardStateMeta = (
       label: isCurrentOnline(acc) ? "当前活跃 · 运行时见底" : "运行时见底",
     };
   }
+
+  // 2. 当前活跃席位
   if (isCurrentOnline(acc)) {
     return {
       tone: "online",
@@ -518,19 +526,7 @@ const getCardStateMeta = (
     };
   }
 
-  if (acc.windsurf_api_key) {
-    return {
-      tone: "ready",
-      label: "MITM 可用",
-    };
-  }
-  if (!acc.windsurf_api_key) {
-    return {
-      tone: "pending",
-      label: "待补 API Key",
-    };
-  }
-
+  // 3. 已过期
   if (isExpiredAccount(acc)) {
     return {
       tone: "danger",
@@ -538,6 +534,7 @@ const getCardStateMeta = (
     };
   }
 
+  // 4. 额度检查（需要有 API Key 且有同步过额度数据才有意义）
   const daily = parseFloat(
     String(acc.daily_remaining || "")
       .replace("%", "")
@@ -555,18 +552,6 @@ const getCardStateMeta = (
   const lowQuota =
     (dailyKnown && daily > 0 && daily < 20) ||
     (weeklyKnown && weekly > 0 && weekly < 20);
-
-  if (
-    !acc.subscription_expires_at &&
-    !dailyKnown &&
-    !weeklyKnown &&
-    !acc.last_quota_update
-  ) {
-    return {
-      tone: "pending",
-      label: "待同步",
-    };
-  }
 
   if (weeklyBlocked) {
     return {
@@ -589,6 +574,28 @@ const getCardStateMeta = (
     };
   }
 
+  // 5. 从未同步过额度且没有 API Key → 待补
+  if (!acc.windsurf_api_key) {
+    return {
+      tone: "pending",
+      label: "待补 API Key",
+    };
+  }
+
+  // 6. 从未同步过任何额度数据 → 待同步
+  if (
+    !acc.subscription_expires_at &&
+    !dailyKnown &&
+    !weeklyKnown &&
+    !acc.last_quota_update
+  ) {
+    return {
+      tone: "pending",
+      label: "待同步",
+    };
+  }
+
+  // 7. 一切正常
   return {
     tone: "ready",
     label: "可参与轮换",
@@ -703,16 +710,26 @@ const getPlanAccentClass = (acc: models.Account) => {
     <div
       class="flex flex-wrap items-center justify-between gap-4 mb-4 shrink-0"
     >
-      <div>
-        <h1 class="text-[32px] font-bold tracking-tight">
-          {{ PRIMARY_POOL_LABEL }}
-        </h1>
-        <p
-          class="text-[13px] text-ios-textSecondary dark:text-ios-textSecondaryDark mt-1"
+      <div class="flex items-center gap-4">
+        <div>
+          <h1 class="text-[32px] font-bold tracking-tight">
+            {{ PRIMARY_POOL_LABEL }}
+          </h1>
+          <p
+            class="text-[13px] text-ios-textSecondary dark:text-ios-textSecondaryDark mt-1"
+          >
+            只维护 API Key / JWT / 官方额度快照。当前活跃席位和运行时见底都以
+            MITM 代理现场状态为准。
+          </p>
+        </div>
+        <button
+          type="button"
+          class="no-drag-region flex items-center px-5 py-2.5 bg-gradient-to-b from-[#3b82f6] to-ios-blue text-white rounded-full font-semibold text-[14px] ios-btn shadow-md ring-1 ring-black/5 whitespace-nowrap shrink-0"
+          @click="showImportModal = true"
         >
-          只维护 API Key / JWT / 官方额度快照。当前活跃席位和运行时见底都以 MITM
-          代理现场状态为准。
-        </p>
+          <Plus class="w-[18px] h-[18px] mr-1" stroke-width="2.5" />
+          批量导入
+        </button>
       </div>
       <div class="flex flex-wrap gap-2 justify-end items-center">
         <button
@@ -810,14 +827,6 @@ const getPlanAccentClass = (acc: models.Account) => {
           </template>
         </div>
 
-        <button
-          type="button"
-          class="no-drag-region flex items-center px-5 py-2.5 bg-gradient-to-b from-[#3b82f6] to-ios-blue text-white rounded-full font-semibold text-[14px] ios-btn shadow-md ring-1 ring-black/5"
-          @click="showImportModal = true"
-        >
-          <Plus class="w-[18px] h-[18px] mr-1" stroke-width="2.5" />
-          批量导入
-        </button>
       </div>
     </div>
 
@@ -1008,6 +1017,13 @@ const getPlanAccentClass = (acc: models.Account) => {
                     :class="getCardStatePanelClass(getCardStateMeta(acc).tone)"
                   >
                     {{ getCardStateMeta(acc).label }}
+                  </span>
+                  <span
+                    v-if="getBoundSessionCount(acc) > 0"
+                    class="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-violet-500/10 border border-violet-500/15 px-2 py-1 text-[10px] font-bold text-violet-700 dark:text-violet-300"
+                    :title="`${getBoundSessionCount(acc)} 个会话绑定到此账号`"
+                  >
+                    {{ getBoundSessionCount(acc) }} 会话
                   </span>
                 </div>
 

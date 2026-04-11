@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"windsurf-tools-wails/backend/utils"
 )
 
 // ── 动态 DNS 解析（兼容 VPN / IP 漂移） ──
@@ -67,12 +69,15 @@ const (
 	UpstreamIP   = "34.49.14.144"
 	UpstreamHost = "server.self-serve.windsurf.com"
 
-	defaultProxyPort  = 443
-	jwtRefreshMinutes = 4
-	maxConsecErrors   = 1
-	keyCooldownSec    = 600
-	recentEventLimit  = 12
-	streamQuotaWindow = 4096
+	defaultProxyPort = 443
+	// 允许两次重放: 切号重试 + 可能的 Invalid Cascade session 剥离 conv_id 重试
+	defaultReplayBudget  = 2
+	jwtRefreshMinutes    = 4
+	maxConsecErrors      = 1
+	keyCooldownSec       = 600
+	rateLimitCooldownSec = 120
+	recentEventLimit     = 12
+	streamQuotaWindow    = 4096
 )
 
 // PoolKeyState tracks the runtime state of each pool key.
@@ -81,6 +86,7 @@ type PoolKeyState struct {
 	JWT              []byte
 	JWTUpdatedAt     time.Time
 	Healthy          bool
+	Disabled         bool
 	RuntimeExhausted bool
 	CooldownUntil    time.Time
 	ConsecutiveErrs  int
@@ -112,12 +118,24 @@ func (s *PoolKeyState) markExhausted() {
 
 func (s *PoolKeyState) markRateLimited() {
 	s.Healthy = false
+	s.Disabled = false
 	s.RuntimeExhausted = false
-	s.CooldownUntil = time.Now().Add(keyCooldownSec * time.Second)
+	s.CooldownUntil = time.Now().Add(rateLimitCooldownSec * time.Second)
+	s.ConsecutiveErrs = 0
+}
+
+func (s *PoolKeyState) markDisabled() {
+	s.Healthy = false
+	s.Disabled = true
+	s.RuntimeExhausted = false
+	s.CooldownUntil = time.Time{}
 	s.ConsecutiveErrs = 0
 }
 
 func (s *PoolKeyState) isAvailable() bool {
+	if s.Disabled {
+		return false
+	}
 	if s.Healthy {
 		return true
 	}
@@ -138,6 +156,7 @@ func (s *PoolKeyState) isAvailable() bool {
 func (s *PoolKeyState) recordSuccess() {
 	s.RequestCount++
 	s.SuccessCount++
+	s.Disabled = false
 	s.RuntimeExhausted = false
 	s.ConsecutiveErrs = 0
 }
@@ -172,11 +191,13 @@ type MitmProxy struct {
 	jwtFetchMu sync.Mutex
 	jwtFetches map[string]*jwtFetchCall
 
-	windsurfSvc    *WindsurfService    // for JWT refresh
-	logFn          func(string)        // log callback for UI
-	onKeyExhausted func(apiKey string) // 额度耗尽回调（App 层刷新额度+同步号池）
-	eventsMu       sync.RWMutex
-	recentEvents   []MitmProxyEvent
+	windsurfSvc         *WindsurfService            // for JWT refresh
+	logFn               func(string)                // log callback for UI
+	onKeyExhausted      func(apiKey string)         // 额度耗尽回调（App 层刷新额度+同步号池）
+	onKeyAccessDenied   func(apiKey, detail string) // 权限拒绝回调（App 层持久化降权/禁用）
+	onCurrentKeyChanged func(apiKey, reason string) // 当前 key 变化回调（App 层同步本地会话）
+	eventsMu            sync.RWMutex
+	recentEvents        []MitmProxyEvent
 
 	jwtReady chan struct{} // closed when at least one JWT is available
 	jwtOnce  sync.Once
@@ -187,7 +208,17 @@ type MitmProxy struct {
 	lastErrorAt      string
 	lastErrorKey     string
 
-	debugDump bool // 开启后 dump GetChatMessage 请求/响应的 protobuf 字段树
+	debugDump   bool // 开启后 dump GetChatMessage 请求/响应的 protobuf 字段树
+	fullCapture bool // 全量抓包：记录所有请求/响应到 JSONL + body 文件
+
+	forgeConfig       ForgeConfig
+	staticCacheConfig StaticCacheConfig
+
+	usageTracker *UsageTracker
+
+	// ── Session binding (per-conversation sticky routing) ──
+	sessionsMu sync.RWMutex
+	sessionMap map[string]*SessionBinding // conversation_id → binding
 }
 
 var injectCodeiumConfigFn = InjectCodeiumConfig
@@ -195,32 +226,50 @@ var getJWTByAPIKeyFn = func(s *WindsurfService, apiKey string) (string, error) {
 	return s.GetJWTByAPIKey(apiKey)
 }
 
+const (
+	MitmCurrentKeyChangeReasonQuotaRotate       = "quota_rotate"
+	MitmCurrentKeyChangeReasonRateLimitRotate   = "rate_limit_rotate"
+	MitmCurrentKeyChangeReasonAuthRotate        = "auth_rotate"
+	MitmCurrentKeyChangeReasonPoolSync          = "pool_sync"
+	MitmCurrentKeyChangeReasonUnavailableRotate = "unavailable_rotate"
+	MitmCurrentKeyChangeReasonJWTFallback       = "jwt_fallback"
+	MitmCurrentKeyChangeReasonManualSwitch      = "manual_switch"
+	MitmCurrentKeyChangeReasonManualNext        = "manual_next"
+)
+
 // MitmProxyStatus is exposed to the frontend.
 type MitmProxyStatus struct {
-	Running          bool             `json:"running"`
-	Port             int              `json:"port"`
-	HostsMapped      bool             `json:"hosts_mapped"`
-	CAInstalled      bool             `json:"ca_installed"`
-	CurrentKey       string           `json:"current_key"`
-	PoolStatus       []PoolKeyInfo    `json:"pool_status"`
-	TotalReqs        int              `json:"total_requests"`
-	LastErrorKind    string           `json:"last_error_kind"`
-	LastErrorSummary string           `json:"last_error_summary"`
-	LastErrorAt      string           `json:"last_error_at"`
-	LastErrorKey     string           `json:"last_error_key"`
-	RecentEvents     []MitmProxyEvent `json:"recent_events"`
+	Running          bool                 `json:"running"`
+	Port             int                  `json:"port"`
+	HostsMapped      bool                 `json:"hosts_mapped"`
+	CAInstalled      bool                 `json:"ca_installed"`
+	CurrentKey       string               `json:"current_key"`
+	PoolStatus       []PoolKeyInfo        `json:"pool_status"`
+	TotalReqs        int                  `json:"total_requests"`
+	ActiveSessions   []SessionBindingInfo `json:"active_sessions"`
+	SessionCount     int                  `json:"session_count"`
+	LastErrorKind    string               `json:"last_error_kind"`
+	LastErrorSummary string               `json:"last_error_summary"`
+	LastErrorAt      string               `json:"last_error_at"`
+	LastErrorKey     string               `json:"last_error_key"`
+	RecentEvents     []MitmProxyEvent     `json:"recent_events"`
 }
 
 type PoolKeyInfo struct {
-	KeyShort         string `json:"key_short"`
-	Healthy          bool   `json:"healthy"`
-	RuntimeExhausted bool   `json:"runtime_exhausted"`
-	CooldownUntil    string `json:"cooldown_until"`
-	HasJWT           bool   `json:"has_jwt"`
-	RequestCount     int    `json:"request_count"`
-	SuccessCount     int    `json:"success_count"`
-	TotalExhausted   int    `json:"total_exhausted"`
-	IsCurrent        bool   `json:"is_current"`
+	KeyShort          string `json:"key_short"`
+	Healthy           bool   `json:"healthy"`
+	Disabled          bool   `json:"disabled"`
+	RuntimeExhausted  bool   `json:"runtime_exhausted"`
+	CooldownUntil     string `json:"cooldown_until"`
+	HasJWT            bool   `json:"has_jwt"`
+	RequestCount      int    `json:"request_count"`
+	SuccessCount      int    `json:"success_count"`
+	TotalExhausted    int    `json:"total_exhausted"`
+	IsCurrent         bool   `json:"is_current"`
+	BoundSessionCount int    `json:"bound_session_count"`
+	// App 层填充（MitmProxy 本身不知道账号信息）
+	Email    string `json:"email,omitempty"`
+	Nickname string `json:"nickname,omitempty"`
 }
 
 type MitmProxyEvent struct {
@@ -229,45 +278,96 @@ type MitmProxyEvent struct {
 	Tone    string `json:"tone"`
 }
 
+// ── Session binding (per-conversation sticky routing) ──
+
+const (
+	sessionMapMaxEntries = 500
+	sessionExpireMinutes = 30
+)
+
+// SessionBinding maps a conversation (by conversation_id) to a specific pool key.
+type SessionBinding struct {
+	ConversationID string
+	PoolKey        string
+	BoundAt        time.Time
+	LastSeenAt     time.Time
+	RequestCount   int
+	Migrated       bool   // key 变更后需要主动剥离 conv_id
+	Title          string // 从请求中提取的会话标题摘要（最后一条 user 消息片段）
+}
+
+// SessionBindingInfo is the frontend-safe DTO for session bindings.
+type SessionBindingInfo struct {
+	ConvIDShort  string `json:"conv_id_short"`
+	PoolKeyShort string `json:"pool_key_short"`
+	BoundAt      string `json:"bound_at"`
+	LastSeenAt   string `json:"last_seen_at"`
+	RequestCount int    `json:"request_count"`
+	Title        string `json:"title"`
+}
+
 type quotaStreamWatchBody struct {
-	inner      io.ReadCloser
-	onQuota    func(detail string)
-	onSuccess  func()
-	recentText string
-	sawQuota   bool
-	finalized  bool
+	inner            io.ReadCloser
+	onQuota          func(detail string)
+	onSuccess        func(completionTokens int)
+	recentText       string
+	sawQuota         bool
+	finalized        bool
+
+	// gRPC parser stream states
+	grpcBuf          []byte
+	completionTokens int
 }
 
 // NewMitmProxy creates a new proxy instance.
-func NewMitmProxy(windsurfSvc *WindsurfService, logFn func(string), proxyURL string) *MitmProxy {
+func NewMitmProxy(windsurfSvc *WindsurfService, logFn func(string), proxyURL string, usageTracker *UsageTracker) *MitmProxy {
 	return &MitmProxy{
-		port:        defaultProxyPort,
-		keyStates:   make(map[string]*PoolKeyState),
-		windsurfSvc: windsurfSvc,
-		logFn:       logFn,
-		proxyURL:    proxyURL,
-		jwtReady:    make(chan struct{}),
-		jwtFetches:  make(map[string]*jwtFetchCall),
-		stopCh:      make(chan struct{}),
+		port:         defaultProxyPort,
+		keyStates:    make(map[string]*PoolKeyState),
+		windsurfSvc:  windsurfSvc,
+		logFn:        logFn,
+		proxyURL:     proxyURL,
+		jwtReady:     make(chan struct{}),
+		jwtFetches:   make(map[string]*jwtFetchCall),
+		stopCh:       make(chan struct{}),
+		sessionMap:   make(map[string]*SessionBinding),
+		usageTracker: usageTracker,
 	}
 }
 
-func (p *MitmProxy) syncCurrentAPIKeyToClient(apiKey string) {
+func (p *MitmProxy) syncCurrentAPIKeyToClient(apiKey, reason string) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return
 	}
-	if err := injectCodeiumConfigFn(apiKey); err != nil {
-		p.log("同步本地 API Key 失败: %s... (%v)", apiKey[:minStr(12, len(apiKey))], err)
-		return
+	// ★ 不再注入 codeium config — MITM 按 conversation_id 路由，IDE 保持原始 Pro key 身份
+	p.log("号池活跃 key 切换: %s... (reason=%s)", apiKey[:minStr(12, len(apiKey))], reason)
+	p.mu.RLock()
+	cb := p.onCurrentKeyChanged
+	p.mu.RUnlock()
+	if cb != nil {
+		go cb(apiKey, strings.TrimSpace(reason))
 	}
-	p.log("同步本地 API Key: %s...", apiKey[:minStr(12, len(apiKey))])
 }
 
 // SetOnKeyExhausted 设置额度耗尽回调（App 层用来触发额度刷新 + 同步号池）
 func (p *MitmProxy) SetOnKeyExhausted(fn func(apiKey string)) {
 	p.mu.Lock()
 	p.onKeyExhausted = fn
+	p.mu.Unlock()
+}
+
+// SetOnKeyAccessDenied 设置权限拒绝回调（App 层用来持久化账号降权/禁用并重同步号池）
+func (p *MitmProxy) SetOnKeyAccessDenied(fn func(apiKey, detail string)) {
+	p.mu.Lock()
+	p.onKeyAccessDenied = fn
+	p.mu.Unlock()
+}
+
+// SetOnCurrentKeyChanged 设置当前 key 变化回调（App 层用来同步本地登录态）。
+func (p *MitmProxy) SetOnCurrentKeyChanged(fn func(apiKey, reason string)) {
+	p.mu.Lock()
+	p.onCurrentKeyChanged = fn
 	p.mu.Unlock()
 }
 
@@ -285,10 +385,12 @@ func (p *MitmProxy) markRuntimeExhaustedAndRotate(usedKey, detail string) string
 	p.recordUpstreamFailure(upstreamFailureQuota, detail, usedKey)
 	if rotatedKey != "" {
 		p.log("★ 额度耗尽轮转: %s... → %s... (pool=%d)", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))], poolSize)
-		p.syncCurrentAPIKeyToClient(rotatedKey)
+		p.syncCurrentAPIKeyToClient(rotatedKey, MitmCurrentKeyChangeReasonQuotaRotate)
 	} else {
 		p.log("★ 额度耗尽但无可轮转 key (pool=%d)", poolSize)
 	}
+	// ★ 不迁移已有会话：迁移后新号没有旧 conversation 的 session，必然 Invalid Cascade session
+	// 已有对话保持粘性，新对话自然会分配到健康 key
 	// 异步触发 App 层刷新耗尽 key 的额度 → 更新 store → syncMitmPoolKeys 移除
 	if cb != nil {
 		p.log("★ 触发 onKeyExhausted 回调: key=%s...", usedKey[:minStr(12, len(usedKey))])
@@ -298,8 +400,31 @@ func (p *MitmProxy) markRuntimeExhaustedAndRotate(usedKey, detail string) string
 }
 
 func (p *MitmProxy) rotateAfterAuthFailure(usedKey, detail string) string {
+	detail = strings.TrimSpace(detail)
+	// 永久权限拒绝（如号被封）→ 仍然禁用 + 切号
+	if isPersistentJWTAccessDeniedDetail(detail) {
+		return p.disableKeyAndRotate(usedKey, detail)
+	}
+	// 普通认证失败 → 不切号，清 JWT + 后台异步刷新
 	p.recordUpstreamFailure(upstreamFailureAuth, detail, usedKey)
 	p.clearJWT(usedKey)
+
+	p.log("★ 认证失败(不切号): %s...，后台异步刷新 JWT", usedKey[:minStr(12, len(usedKey))])
+	if usedKey != "" && p.windsurfSvc != nil && p.windsurfSvc.client != nil {
+		go func(key string) {
+			refreshed := p.refreshJWTForKey(key)
+			if len(refreshed) > 0 {
+				p.log("认证失败后后台刷新 JWT 成功: %s...", key[:minStr(12, len(key))])
+			} else {
+				p.log("认证失败后后台刷新 JWT 失败: %s...", key[:minStr(12, len(key))])
+			}
+		}(usedKey)
+	}
+	return "" // 不切号
+}
+
+func (p *MitmProxy) disableKeyAndRotate(usedKey, detail string) string {
+	p.markKeyDisabled(usedKey, detail)
 
 	p.mu.Lock()
 	rotatedKey := p.rotateKey()
@@ -308,29 +433,21 @@ func (p *MitmProxy) rotateAfterAuthFailure(usedKey, detail string) string {
 
 	rotatedKey = strings.TrimSpace(rotatedKey)
 	if rotatedKey != "" && rotatedKey != strings.TrimSpace(usedKey) {
-		p.log("★ 认证失败轮转: %s... → %s... (pool=%d)", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))], poolSize)
-		p.syncCurrentAPIKeyToClient(rotatedKey)
-		if usedKey != "" && p.windsurfSvc != nil && p.windsurfSvc.client != nil {
-			go func(key string) {
-				refreshed := p.refreshJWTForKey(key)
-				if len(refreshed) == 0 {
-					p.log("认证失败后后台刷新 JWT 失败: %s...", key[:minStr(12, len(key))])
-				}
-			}(usedKey)
-		}
+		p.log("★ 权限拒绝轮转: %s... → %s... (pool=%d)", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))], poolSize)
+		p.syncCurrentAPIKeyToClient(rotatedKey, MitmCurrentKeyChangeReasonAuthRotate)
 		return rotatedKey
 	}
 	if poolSize <= 1 {
-		p.log("认证失败但号池无备用 key，回退 JWT 刷新: %s...", usedKey[:minStr(12, len(usedKey))])
+		p.log("权限拒绝但号池无备用 key: %s...", usedKey[:minStr(12, len(usedKey))])
 	} else {
-		p.log("认证失败轮转未找到可用备用 key，回退 JWT 刷新: %s...", usedKey[:minStr(12, len(usedKey))])
+		p.log("权限拒绝已禁用当前 key，但没有可立即轮转的备用 key: %s...", usedKey[:minStr(12, len(usedKey))])
 	}
 	return ""
 }
 
 func (p *MitmProxy) markRateLimitedAndRotate(usedKey, detail string) string {
 	p.recordUpstreamFailure(upstreamFailureRateLimit, detail, usedKey)
-
+	// ★ 限速：短冷却 + 切号重试（限速是 per-key 的，换号能绕过）
 	p.mu.Lock()
 	if state := p.keyStates[usedKey]; state != nil {
 		state.markRateLimited()
@@ -338,22 +455,39 @@ func (p *MitmProxy) markRateLimitedAndRotate(usedKey, detail string) string {
 	rotatedKey := p.rotateKey()
 	poolSize := len(p.poolKeys)
 	p.mu.Unlock()
-
-	rotatedKey = strings.TrimSpace(rotatedKey)
 	if rotatedKey != "" && rotatedKey != strings.TrimSpace(usedKey) {
-		p.log("★ 限速轮转: %s... → %s... (pool=%d)", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))], poolSize)
-		p.syncCurrentAPIKeyToClient(rotatedKey)
+		p.log("★ 限速轮转: %s... → %s... (pool=%d, cooldown=%ds)",
+			usedKey[:minStr(12, len(usedKey))],
+			rotatedKey[:minStr(12, len(rotatedKey))],
+			poolSize, rateLimitCooldownSec)
+		p.syncCurrentAPIKeyToClient(rotatedKey, MitmCurrentKeyChangeReasonRateLimitRotate)
+		// ★ 不迁移已有会话：保持会话粘性，避免 Invalid Cascade session
 		return rotatedKey
 	}
-	if poolSize <= 1 {
-		p.log("当前 key 遇到限速且号池无备用 key: %s...", usedKey[:minStr(12, len(usedKey))])
-	} else {
-		p.log("当前 key 遇到限速但没有可立即轮转的备用 key: %s...", usedKey[:minStr(12, len(usedKey))])
-	}
+	p.log("★ 限速但无可轮转 key，透传给 IDE (pool=%d): %s...", poolSize, usedKey[:minStr(12, len(usedKey))])
 	return ""
 }
 
-func newQuotaStreamWatchBody(inner io.ReadCloser, onQuota func(detail string), onSuccess func()) *quotaStreamWatchBody {
+func (p *MitmProxy) markKeyDisabled(apiKey, detail string) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return
+	}
+	p.clearJWT(apiKey)
+	p.mu.Lock()
+	if state := p.keyStates[apiKey]; state != nil {
+		state.markDisabled()
+	}
+	cb := p.onKeyAccessDenied
+	p.mu.Unlock()
+	p.recordUpstreamFailure(upstreamFailurePermission, detail, apiKey)
+	p.log("★ JWT 权限拒绝，已禁用 key: %s... (%s)", apiKey[:minStr(12, len(apiKey))], truncate(detail, 140))
+	if cb != nil {
+		go cb(apiKey, detail)
+	}
+}
+
+func newQuotaStreamWatchBody(inner io.ReadCloser, onQuota func(detail string), onSuccess func(int)) *quotaStreamWatchBody {
 	return &quotaStreamWatchBody{
 		inner:     inner,
 		onQuota:   onQuota,
@@ -379,9 +513,37 @@ func (b *quotaStreamWatchBody) Close() error {
 }
 
 func (b *quotaStreamWatchBody) scanChunk(chunk []byte) {
-	if len(chunk) == 0 || b.sawQuota {
+	if len(chunk) == 0 {
 		return
 	}
+
+	// ── 抓取 Tokens ──
+	b.grpcBuf = append(b.grpcBuf, chunk...)
+	for len(b.grpcBuf) >= 5 {
+		flags := b.grpcBuf[0]
+		payloadLen := int(binary.BigEndian.Uint32(b.grpcBuf[1:5]))
+		if len(b.grpcBuf) < 5+payloadLen {
+			break
+		}
+		payload := b.grpcBuf[5 : 5+payloadLen]
+		b.grpcBuf = b.grpcBuf[5+payloadLen:]
+
+		if flags&2 != 0 {
+			continue // skip EOS
+		}
+		decoded, err := decodeStreamEnvelopePayload(flags, payload)
+		if err == nil && len(decoded) > 0 {
+			chunkResponse, _, err := ParseChatResponseChunk(decoded)
+			if err == nil && len(chunkResponse) > 0 {
+				b.completionTokens += estimateTokens(chunkResponse)
+			}
+		}
+	}
+
+	if b.sawQuota {
+		return
+	}
+
 	lower := strings.ToLower(string(chunk))
 	combined := b.recentText + lower
 	if len(combined) > streamQuotaWindow {
@@ -409,13 +571,13 @@ func (b *quotaStreamWatchBody) finalize() {
 	if b.sawQuota || b.onSuccess == nil {
 		return
 	}
-	b.onSuccess()
+	b.onSuccess(b.completionTokens)
 }
 
 func (p *MitmProxy) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf("[MITM] "+format, args...)
 	p.appendRecentEvent(msg)
-	log.Println(msg)
+	utils.DLog("%s", msg) // 同时写 stdout + debug.log（DLog 内部已调用 log.Print）
 	if p.logFn != nil {
 		p.logFn(msg)
 	}
@@ -559,7 +721,7 @@ func (p *MitmProxy) SetPoolKeys(keys []string) {
 		go p.prefetchJWTs()
 	}
 	if running && newCurrentKey != "" && newCurrentKey != previousCurrentKey {
-		p.syncCurrentAPIKeyToClient(newCurrentKey)
+		p.syncCurrentAPIKeyToClient(newCurrentKey, MitmCurrentKeyChangeReasonPoolSync)
 	}
 }
 
@@ -643,10 +805,11 @@ func (p *MitmProxy) Stop() error {
 }
 
 // Status returns the current proxy status.
+// ★ 注意锁顺序：先 p.mu 后 sessionsMu，与 pickPoolKeyForSession（先 sessionsMu 后 p.mu）冲突。
+// 所以这里必须先完成 p.mu 读取并释放，再单独获取 sessionsMu，避免死锁。
 func (p *MitmProxy) Status() MitmProxyStatus {
+	// ── Phase 1: 在 p.mu 下收集号池信息，然后释放 ──
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-
 	status := MitmProxyStatus{
 		Running:          p.running,
 		Port:             p.port,
@@ -657,6 +820,10 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 		LastErrorAt:      p.lastErrorAt,
 		LastErrorKey:     p.lastErrorKey,
 	}
+
+	// 拷贝 poolKeys 供后续 session 阶段使用（避免再次拿 p.mu）
+	poolKeysCopy := make([]string, len(p.poolKeys))
+	copy(poolKeysCopy, p.poolKeys)
 
 	totalReqs := 0
 	for i, k := range p.poolKeys {
@@ -678,6 +845,7 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 		info := PoolKeyInfo{
 			KeyShort:         short,
 			Healthy:          state.Healthy,
+			Disabled:         state.Disabled,
 			RuntimeExhausted: state.RuntimeExhausted,
 			CooldownUntil:    state.CooldownUntil.Format(time.RFC3339),
 			HasJWT:           hasJWT,
@@ -693,7 +861,53 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 		}
 	}
 	status.TotalReqs = totalReqs
+	p.mu.RUnlock() // ★ 释放 p.mu，再拿 sessionsMu
+
 	status.RecentEvents = p.recentEventsSnapshot()
+
+	// ── Phase 2: 在 sessionsMu 下收集会话信息（不持有 p.mu） ──
+	p.sessionsMu.RLock()
+	status.SessionCount = len(p.sessionMap)
+	now := time.Now()
+	for _, sb := range p.sessionMap {
+		if now.Sub(sb.LastSeenAt) > sessionExpireMinutes*time.Minute {
+			continue
+		}
+		status.ActiveSessions = append(status.ActiveSessions, SessionBindingInfo{
+			ConvIDShort:  sb.ConversationID[:minStr(12, len(sb.ConversationID))] + "...",
+			PoolKeyShort: sb.PoolKey[:minStr(16, len(sb.PoolKey))] + "...",
+			BoundAt:      sb.BoundAt.Format(time.RFC3339),
+			LastSeenAt:   sb.LastSeenAt.Format(time.RFC3339),
+			RequestCount: sb.RequestCount,
+			Title:        sb.Title,
+		})
+	}
+
+	// Fill per-key BoundSessionCount
+	if len(status.PoolStatus) > 0 {
+		for i := range status.PoolStatus {
+			fullKey := ""
+			for _, k := range poolKeysCopy {
+				short := k
+				if len(k) > 16 {
+					short = k[:16] + "..."
+				}
+				if short == status.PoolStatus[i].KeyShort {
+					fullKey = k
+					break
+				}
+			}
+			if fullKey != "" {
+				cnt := p.sessionBindingCount(fullKey)
+				status.PoolStatus[i].BoundSessionCount = cnt
+				if cnt > 0 {
+					status.PoolStatus[i].IsCurrent = true
+				}
+			}
+		}
+	}
+	p.sessionsMu.RUnlock()
+
 	return status
 }
 
@@ -716,6 +930,7 @@ func (p *MitmProxy) buildUpstreamTransport() *http.Transport {
 			NextProtos:         []string{"h2", "http/1.1"},
 		},
 		ForceAttemptHTTP2:     true,
+		DisableCompression:    true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
@@ -752,6 +967,7 @@ const (
 func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// 保存原始 body 以便重试时重放
 	var savedBody []byte
+	var retryBody []byte
 	if req.Body != nil {
 		var err error
 		savedBody, err = io.ReadAll(req.Body)
@@ -759,9 +975,23 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
+		retryBody = cloneBytes(savedBody)
 		req.Body = io.NopCloser(bytes.NewReader(savedBody))
 		req.ContentLength = int64(len(savedBody))
+
+		if strings.Contains(req.URL.Path, "GetChatMessage") || strings.Contains(req.URL.Path, "GetCompletions") {
+			model, pt := ExtractMitmMetadata(savedBody)
+			if model != "" {
+				req.Header.Set("X-Mitm-Model", model)
+			}
+			req.Header.Set("X-Mitm-Prompt-Tokens", fmt.Sprintf("%d", pt))
+			req.Header.Set("X-Mitm-Start-Time", fmt.Sprintf("%d", time.Now().UnixMilli()))
+		}
 	}
+
+	// Strip internal headers before sending upstream
+	convID := req.Header.Get("X-Conv-ID")
+	req.Header.Del("X-Conv-ID")
 
 	for attempt := 0; attempt <= rt.maxRetry; attempt++ {
 		resp, err := rt.base.RoundTrip(req)
@@ -769,12 +999,62 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 
-		// 只对小响应体检查额度错误（大的是正常流式数据）
-		if resp.ContentLength > 5000 {
-			return resp, nil
+		// ── 判断是否可以缓冲读取以检测错误 ──
+		// Windsurf 使用 Connect 协议：
+		//   流式端点(GetChatMessage/GetCompletions): HTTP 200 + Connect frames
+		//     - 错误通过 EOS trailer 帧(flag&0x02)返回，通常在最后几百字节
+		//     - 正常数据通过 data frames 返回，可能很大
+		//   非流式端点: HTTP 4xx + JSON body
+		//
+		// 策略:
+		//   HTTP 4xx → 一定缓冲读取检测错误
+		//   HTTP 200 + 小包(CL已知且<5000 或 CL=-1 但 CT=application/json) → 缓冲
+		//   HTTP 200 + 大流式(CL=-1, CT=connect+proto) → 交给 handleResponse 的 ConnectStreamWatcher
+		canBuffer := false
+		if resp.StatusCode >= 400 {
+			canBuffer = true
+		} else if resp.ContentLength >= 0 && resp.ContentLength < 5000 {
+			canBuffer = true
+		} else if resp.StatusCode == 200 {
+			ct := strings.ToLower(resp.Header.Get("Content-Type"))
+			if strings.Contains(ct, "json") {
+				canBuffer = true // Connect 协议异常: 200 + application/json
+			}
 		}
 
-		// 读取响应体检查是否为额度耗尽
+		if !canBuffer {
+			// ★ 对 CL=-1 的 connect+proto 响应，peek 前 8KB 检测小错误包(rate limit 等)
+			// Rate limit 错误通常 <1KB，"Your request was not processed" 意味着无数据帧
+			const peekLimit = 8192
+			if resp.StatusCode == 200 && resp.ContentLength < 0 {
+				peekBuf := make([]byte, peekLimit+1)
+				n, peekErr := io.ReadFull(resp.Body, peekBuf)
+				if n <= peekLimit {
+					// 整个响应 <= 8KB，可以缓冲走重试路径
+					resp.Body.Close()
+					respBody := peekBuf[:n]
+					resp.Body = io.NopCloser(bytes.NewReader(respBody))
+					resp.ContentLength = int64(n)
+					canBuffer = true
+					// fall through to error detection below
+				} else {
+					// 大于 8KB，是真正的流式数据，还原 body
+					resp.Body = struct {
+						io.Reader
+						io.Closer
+					}{
+						Reader: io.MultiReader(bytes.NewReader(peekBuf[:n]), resp.Body),
+						Closer: resp.Body,
+					}
+					_ = peekErr
+					return resp, nil
+				}
+			} else {
+				return resp, nil
+			}
+		}
+
+		// 读取响应体
 		respBody, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
@@ -782,47 +1062,80 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return resp, nil
 		}
 
-		// gRPC Trailers-Only 错误: body 为空但 grpc-status/grpc-message 在 header 或 trailer 中
-		grpcStatus := resp.Header.Get("grpc-status")
-		grpcMsg := resp.Header.Get("grpc-message")
-		if grpcStatus == "" {
-			grpcStatus = resp.Trailer.Get("grpc-status")
-		}
-		if grpcMsg == "" {
-			grpcMsg = resp.Trailer.Get("grpc-message")
+		// ── Connect 协议错误检测 ──
+		// 1. 先尝试 Connect EOS 帧解析（流式端点的错误格式）
+		// 2. 再回退到旧的 gRPC header + body text 检测（兼容）
+		var kind upstreamFailureKind
+		var detail string
+		var isCascadeSession bool
+
+		connectResult := ParseConnectEOS(respBody)
+		if connectResult.IsError {
+			kind, detail = ClassifyConnectError(connectResult)
+			isCascadeSession = IsCascadeSessionError(connectResult)
+			rt.proxy.log("Connect错误检测: code=%s msg=%s kind=%s cascade=%v path=%s",
+				connectResult.Code, truncate(connectResult.Message, 80), kind, isCascadeSession,
+				req.URL.Path)
+		} else {
+			// Fallback: 旧的 gRPC header + body text 检测
+			grpcStatus := resp.Header.Get("grpc-status")
+			grpcMsg := resp.Header.Get("grpc-message")
+			if grpcStatus == "" {
+				grpcStatus = resp.Trailer.Get("grpc-status")
+			}
+			if grpcMsg == "" {
+				grpcMsg = resp.Trailer.Get("grpc-message")
+			}
+			kind, detail = classifyUpstreamFailure(grpcStatus, grpcMsg, string(respBody))
+			isCascadeSession = isCascadeSessionFailure(grpcStatus, grpcMsg, string(respBody))
 		}
 
-		kind, detail := classifyUpstreamFailure(grpcStatus, grpcMsg, string(respBody))
+		// ── Invalid Cascade session → 不切号不剥离不重试，直接透传给 IDE ──
+		// 切号无意义（新号也没有这个 conversation 的 session），剥离 conv_id 会导致 Invalid argument
+		// IDE 会自动重新发起新对话
+		if isCascadeSession {
+			usedKey := req.Header.Get("X-Pool-Key-Used")
+			convShort := convID
+			if len(convShort) > 8 {
+				convShort = convShort[:8]
+			}
+			rt.proxy.log("★ Cascade 会话失效(不重试，透传给IDE): path=%s key=%s conv=%s",
+				req.URL.Path, safeUsedKeyForLog(usedKey), convShort)
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			return resp, nil
+		}
+
 		isExhausted := kind == upstreamFailureQuota
 		isRateLimited := kind == upstreamFailureRateLimit
-		isAuthFailure := kind == upstreamFailureAuth
+		isAuthFailure := kind == upstreamFailureAuth || kind == upstreamFailurePermission
 		usedKey := req.Header.Get("X-Pool-Key-Used")
 
 		if (!isExhausted && !isAuthFailure && !isRateLimited) || attempt >= rt.maxRetry {
-			// 不是可重试的额度/认证错误，或已达最大重试次数，返回
-			if kind != upstreamFailureNone && kind != upstreamFailureQuota && kind != upstreamFailureAuth && kind != upstreamFailureRateLimit {
+			if kind != upstreamFailureNone {
 				rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
-				rt.proxy.log("上游%s错误(不轮转): %s", kind.logLabel(), detail)
-			}
-			if kind == upstreamFailureAuth || kind == upstreamFailureRateLimit {
-				rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
-				rt.proxy.log("上游%s错误(已达重试上限): %s", kind.logLabel(), detail)
+				if attempt >= rt.maxRetry {
+					rt.proxy.log("上游%s错误(已达重试上限%d): %s", kind.logLabel(), rt.maxRetry, detail)
+				} else {
+					rt.proxy.log("上游%s错误(不可重试): %s", kind.logLabel(), detail)
+				}
 			}
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			return resp, nil
 		}
 
+		// ── 执行轮转/重试 ──
 		if isAuthFailure {
 			if rotatedKey := rt.proxy.rotateAfterAuthFailure(usedKey, detail); rotatedKey == "" {
 				refreshedJWT := rt.proxy.refreshJWTForKey(usedKey)
 				if len(refreshedJWT) > 0 {
-					newBody, replaced := ReplaceIdentityInBody(savedBody, []byte(usedKey), refreshedJWT)
+					newBody, replaced := ReplaceIdentityInBody(retryBody, []byte(usedKey), refreshedJWT)
 					if replaced {
+						retryBody = newBody
 						req.Body = io.NopCloser(bytes.NewReader(newBody))
 						req.ContentLength = int64(len(newBody))
 					} else {
-						req.Body = io.NopCloser(bytes.NewReader(savedBody))
-						req.ContentLength = int64(len(savedBody))
+						req.Body = io.NopCloser(bytes.NewReader(retryBody))
+						req.ContentLength = int64(len(retryBody))
 					}
 					req.Header.Set("Authorization", "Bearer "+string(refreshedJWT))
 					req.Header.Set("X-Pool-Key-Used", usedKey)
@@ -837,17 +1150,34 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				return resp, nil
 			}
 		} else if isRateLimited {
-			if rotatedKey := rt.proxy.markRateLimitedAndRotate(usedKey, detail); rotatedKey == "" {
-				resp.Body = io.NopCloser(bytes.NewReader(respBody))
-				return resp, nil
-			}
+			rt.proxy.markRateLimitedAndRotate(usedKey, detail)
 		} else {
-			// ★ 检测到额度耗尽，切号 + 重试
+			// ★ 额度耗尽，切号
 			rt.proxy.markRuntimeExhaustedAndRotate(usedKey, detail)
 		}
 
-		// 用新号重新构造请求
-		newKey, newJWT := rt.proxy.pickPoolKeyAndJWT()
+		// ★ 有 convID 的已存在对话：限速/额度耗尽后不能用新号重试
+		// 新号没有该 conversation 的 Cascade session，切号重试必然 Invalid Cascade session
+		// 只标记切号供后续新对话使用，当前请求直接透传错误给 IDE
+		if convID != "" && (isExhausted || isRateLimited) {
+			rt.proxy.log("已有对话 %s... 的 key %s... %s，不切号重试（避免 Invalid Cascade session），透传给 IDE",
+				convID[:minStr(8, len(convID))],
+				usedKey[:minStr(12, len(usedKey))],
+				kind.logLabel())
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			return resp, nil
+		}
+
+		// 用新号重新构造请求（仅无 convID 的新对话，或认证失败刷 JWT 重试）
+		var newKey string
+		var newJWT []byte
+		if convID != "" {
+			// 认证失败重试：保持 session 粘性（同一个 key 刷新 JWT 后重试）
+			newKey, newJWT = rt.proxy.pickPoolKeyForSession(convID)
+		} else {
+			// 无 convID 的新对话：可以用新号
+			newKey, newJWT = rt.proxy.pickPoolKeyAndJWT()
+		}
 		if newKey == "" || len(newJWT) == 0 {
 			rt.proxy.log("重试失败: 无可用号池 key")
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
@@ -855,33 +1185,22 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		// 重新替换身份
-		newBody, replaced := ReplaceIdentityInBody(savedBody, []byte(newKey), newJWT)
+		newBody, replaced := ReplaceIdentityInBody(retryBody, []byte(newKey), newJWT)
 		if replaced {
+			retryBody = newBody
 			req.Body = io.NopCloser(bytes.NewReader(newBody))
 			req.ContentLength = int64(len(newBody))
 		} else {
-			req.Body = io.NopCloser(bytes.NewReader(savedBody))
-			req.ContentLength = int64(len(savedBody))
+			req.Body = io.NopCloser(bytes.NewReader(retryBody))
+			req.ContentLength = int64(len(retryBody))
 		}
 		req.Header.Set("Authorization", "Bearer "+string(newJWT))
 		req.Header.Set("X-Pool-Key-Used", newKey)
 
-		if isAuthFailure {
-			rt.proxy.log("★ 认证失败切换重试(%d/%d): %s... → %s...",
-				attempt+1, rt.maxRetry,
-				usedKey[:minStr(12, len(usedKey))],
-				newKey[:minStr(12, len(newKey))])
-		} else if isRateLimited {
-			rt.proxy.log("★ 限速切换重试(%d/%d): %s... → %s...",
-				attempt+1, rt.maxRetry,
-				usedKey[:minStr(12, len(usedKey))],
-				newKey[:minStr(12, len(newKey))])
-		} else {
-			rt.proxy.log("★ 额度耗尽自动重试(%d/%d): %s... → %s...",
-				attempt+1, rt.maxRetry,
-				usedKey[:minStr(12, len(usedKey))],
-				newKey[:minStr(12, len(newKey))])
-		}
+		rt.proxy.log("★ %s自动重试(%d/%d): %s... → %s...",
+			kind.logLabel(), attempt+1, rt.maxRetry,
+			usedKey[:minStr(12, len(usedKey))],
+			newKey[:minStr(12, len(newKey))])
 	}
 
 	return nil, fmt.Errorf("超过最大重试次数")
@@ -891,8 +1210,9 @@ func (rt *retryTransport) checkExhausted(textLower string) bool {
 	return isQuotaExhaustedText(textLower)
 }
 
-func (p *MitmProxy) serve() {
-	proxy := &httputil.ReverseProxy{
+func (p *MitmProxy) newReverseProxy() *httputil.ReverseProxy {
+	return &httputil.ReverseProxy{
+		FlushInterval: -1,
 		Director: func(req *http.Request) {
 			// ★ 保留原始 Host（可能是 server.self-serve.windsurf.com 或 server.codeium.com）
 			origHost := req.Host
@@ -912,7 +1232,7 @@ func (p *MitmProxy) serve() {
 		Transport: &retryTransport{
 			base:     p.buildUpstreamTransport(),
 			proxy:    p,
-			maxRetry: 3,
+			maxRetry: defaultReplayBudget,
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			p.handleResponse(resp)
@@ -923,9 +1243,18 @@ func (p *MitmProxy) serve() {
 			w.WriteHeader(http.StatusBadGateway)
 		},
 	}
+}
 
+func (p *MitmProxy) serve() {
+	proxy := p.newReverseProxy()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p.tryServeStaticCache(w, r) {
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	})
 	server := &http.Server{
-		Handler: proxy,
+		Handler: handler,
 	}
 
 	if err := server.Serve(p.listener); err != nil {
@@ -942,6 +1271,9 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 	// 使用传入的原始域名设置 Host 头（可能是 server.self-serve.windsurf.com 或 server.codeium.com）
 	req.Host = origHost
 	req.Header.Set("Host", origHost)
+
+	// ★ 全量抓包：请求
+	p.captureRequest(req)
 
 	path := req.URL.Path
 	pathTail := path
@@ -961,7 +1293,12 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 		return
 	}
 
-	// Read body
+	// ★ 快速路径: 身份请求 (GetUserStatus/Ping/...) 直接透传，不读 body，零延迟
+	if !mayHaveConversationID(path) {
+		return
+	}
+
+	// Read body — 只对可能包含 conversation_id 的路径 (Chat/Cortex/Trajectory)
 	if req.Body == nil {
 		return
 	}
@@ -972,8 +1309,67 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 		return
 	}
 
-	// Pick pool key + JWT
-	poolKey, poolJWT := p.pickPoolKeyAndJWT()
+	// ★ 提取 conversation_id 分流路由
+	convID, convDbg := ExtractConversationIDFromBody(bodyBytes)
+
+	// ★ 迁移会话主动剥离 conv_id，避免 Invalid Cascade session 重试开销
+	if convID != "" {
+		var migrated bool
+		// var migratedKeyShort string
+		p.sessionsMu.RLock()
+		if binding := p.sessionMap[convID]; binding != nil && binding.Migrated {
+			migrated = true
+			/*
+				if len(binding.PoolKey) > 12 {
+					migratedKeyShort = binding.PoolKey[:12] + "..."
+				} else {
+					migratedKeyShort = binding.PoolKey
+				}
+			*/
+		}
+		p.sessionsMu.RUnlock()
+		if migrated {
+			/*
+				if stripped, ok := StripConversationIDFromBody(bodyBytes); ok {
+					bodyBytes = stripped
+					p.log("迁移会话主动剥离conv_id: conv=%s... key=%s",
+						convID[:minStr(8, len(convID))], migratedKeyShort)
+				}
+			*/
+		}
+	}
+
+	if convID == "" {
+		if isChatPath(path) {
+			// 新对话首条消息(无 conv_id)也需要用号池 key
+			p.log("session路由(新对话): path=%s [%s]", pathTail, convDbg)
+		} else {
+			// Cortex/Trajectory 请求但无 conv_id → 透传
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			return
+		}
+	} else {
+		p.log("session路由: path=%s convID=%s [%s]", pathTail, convID, convDbg)
+	}
+
+	var poolKey string
+	var poolJWT []byte
+
+	if convID != "" {
+		poolKey, poolJWT = p.pickPoolKeyForSession(convID)
+		req.Header.Set("X-Conv-ID", convID)
+		// Extract title hint for session binding display
+		if titleHint := ExtractSessionTitleHint(bodyBytes); titleHint != "" {
+			p.sessionsMu.Lock()
+			if binding := p.sessionMap[convID]; binding != nil && binding.Title == "" {
+				binding.Title = titleHint
+			}
+			p.sessionsMu.Unlock()
+		}
+	} else {
+		poolKey, poolJWT = p.pickPoolKeyAndJWT()
+	}
+
 	if poolKey == "" || len(poolJWT) == 0 {
 		// ★ 核心安全逻辑：没有 JWT 绝不替换身份，直接透传原始请求
 		if poolKey == "" {
@@ -1009,7 +1405,49 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 	req.Header.Set("X-Pool-Key-Used", poolKey)
 }
 
+func (p *MitmProxy) recordMitmUsage(req *http.Request, usedKey string, completionTokens int, kind upstreamFailureKind, detail string) {
+	if p.usageTracker == nil || req == nil {
+		return
+	}
+	model := req.Header.Get("X-Mitm-Model")
+	promptTokensStr := req.Header.Get("X-Mitm-Prompt-Tokens")
+	if model == "" && promptTokensStr == "" {
+		return
+	}
+	promptTokens := 0
+	fmt.Sscanf(promptTokensStr, "%d", &promptTokens)
+
+	var durationMs int64 = 0
+	if startStr := req.Header.Get("X-Mitm-Start-Time"); startStr != "" {
+		var startMs int64
+		if _, err := fmt.Sscanf(startStr, "%d", &startMs); err == nil && startMs > 0 {
+			durationMs = time.Now().UnixMilli() - startMs
+		}
+	}
+
+	status := "ok"
+	if kind != upstreamFailureNone {
+		status = "error"
+	}
+
+	p.usageTracker.Record(UsageRecord{
+		Model:            model,
+		RequestModel:     "mitm-direct",
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      promptTokens + completionTokens,
+		DurationMs:       durationMs,
+		APIKeyShort:      usedKey[:minStr(12, len(usedKey))],
+		Status:           status,
+		ErrorDetail:      detail,
+		Format:           "windsurf-mitm",
+	})
+}
+
 func (p *MitmProxy) handleResponse(resp *http.Response) {
+	// ★ 全量抓包：响应
+	p.captureResponse(resp)
+
 	path := resp.Request.URL.Path
 	pathTail := path
 	if idx := strings.LastIndex(path, "/"); idx >= 0 {
@@ -1022,7 +1460,7 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 		trafficLog("RESP %s %s → %d (ct=%s cl=%d grpc-status=%s)", resp.Request.Method, path, resp.StatusCode, respCT, resp.ContentLength, grpcSt)
 	}
 
-	if shouldCaptureTrafficPath(path) && resp.Body != nil && resp.ContentLength < 500000 {
+	if shouldCaptureTrafficPath(path) && resp.Body != nil && resp.ContentLength >= 0 && resp.ContentLength < 500000 {
 		bodySnap, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err == nil && len(bodySnap) > 0 {
@@ -1056,116 +1494,130 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 	exhaustedDetail := ""
 
 	if isProto && resp.Body != nil {
-		// 对小响应体直接完整读取；对对话/补全的大流式响应改为边转发边检测配额错误。
-		// Trailers-Only gRPC 错误可能 ContentLength=-1 但 grpc-status 已在 header 中
-		hasGRPCStatusHeader := resp.Header.Get("grpc-status") != "" && resp.Header.Get("grpc-status") != "0"
-		shouldCheckBuffered := (resp.ContentLength >= 0 && resp.ContentLength < 5000) || resp.StatusCode >= 400 || hasGRPCStatusHeader
+		// ── Connect 协议错误检测 ──
+		// Windsurf 使用 Connect 协议:
+		//   流式端点(GetChatMessage/GetCompletions): HTTP 200 + Connect frames
+		//     错误通过 EOS trailer 帧(flag&0x02)返回
+		//   非流式端点: HTTP 4xx + JSON body {"code":"xxx","message":"yyy"}
+		//   协议异常: HTTP 200 + Content-Type: application/json (应为 connect+proto)
+		ct := strings.ToLower(resp.Header.Get("Content-Type"))
+		isConnectJSON := resp.StatusCode == 200 && strings.Contains(ct, "json")
+		shouldCheckBuffered := (resp.ContentLength >= 0 && resp.ContentLength < 5000) || resp.StatusCode >= 400 || isConnectJSON
 		shouldWatchStream := isBilling && resp.StatusCode == 200 && !shouldCheckBuffered
+
 		if isBilling {
-			trafficLog("  BILLING-PATH: path=%s isProto=%v buffered=%v stream=%v cl=%d status=%d grpcSt=%s key=%s...",
-				pathTail, isProto, shouldCheckBuffered, shouldWatchStream, resp.ContentLength, resp.StatusCode, grpcSt, usedKey[:minStr(12, len(usedKey))])
+			trafficLog("  BILLING-PATH: path=%s buffered=%v stream=%v cl=%d status=%d ct=%s key=%s...",
+				pathTail, shouldCheckBuffered, shouldWatchStream, resp.ContentLength, resp.StatusCode, ct, usedKey[:minStr(12, len(usedKey))])
 		}
 
 		if shouldCheckBuffered {
 			bodyBytes, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err == nil {
-				// 同 retryTransport: 优先 header，回退 trailer（Trailers-Only 场景）
-				gs := resp.Header.Get("grpc-status")
-				gm := resp.Header.Get("grpc-message")
-				if gs == "" {
-					gs = resp.Trailer.Get("grpc-status")
+				// 先用 Connect EOS 帧解析
+				connectResult := ParseConnectEOS(bodyBytes)
+				var kind upstreamFailureKind
+				var detail string
+				if connectResult.IsError {
+					kind, detail = ClassifyConnectError(connectResult)
+				} else {
+					// Fallback: 旧的 gRPC header + body text
+					gs := resp.Header.Get("grpc-status")
+					gm := resp.Header.Get("grpc-message")
+					if gs == "" {
+						gs = resp.Trailer.Get("grpc-status")
+					}
+					if gm == "" {
+						gm = resp.Trailer.Get("grpc-message")
+					}
+					kind, detail = classifyUpstreamFailure(gs, gm, string(bodyBytes))
 				}
-				if gm == "" {
-					gm = resp.Trailer.Get("grpc-message")
-				}
-				kind, detail := classifyUpstreamFailure(gs, gm, string(bodyBytes))
-				if kind == upstreamFailureQuota {
+
+				switch {
+				case kind == upstreamFailureQuota:
 					isExhausted = true
 					exhaustedDetail = detail
-					p.log("额度耗尽: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-				} else if kind == upstreamFailureRateLimit && isBilling {
-					p.log("限速命中: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-					rotatedKey := p.markRateLimitedAndRotate(usedKey, detail)
-					if rotatedKey != "" {
+					p.log("额度耗尽(buffered): %s key=%s... %s", pathTail, usedKey[:minStr(12, len(usedKey))], truncate(detail, 100))
+				case kind == upstreamFailureRateLimit && isBilling:
+					p.log("限速(buffered): %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
+					if rotatedKey := p.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
 						p.log("★ 限速立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
 					}
-				} else if kind == upstreamFailureAuth && isBilling {
-					p.log("认证失败: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-					rotatedKey := p.rotateAfterAuthFailure(usedKey, detail)
-					if rotatedKey != "" {
+				case (kind == upstreamFailureAuth || kind == upstreamFailurePermission) && isBilling:
+					p.log("认证/权限失败(buffered): %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
+					if rotatedKey := p.rotateAfterAuthFailure(usedKey, detail); rotatedKey != "" {
 						p.log("★ 认证失败立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
 					}
-				} else if kind != upstreamFailureNone && isBilling {
+				case kind != upstreamFailureNone && isBilling:
 					p.recordUpstreamFailure(kind, detail, usedKey)
-					p.log("上游%s错误: %s key=%s...", kind.logLabel(), detail, usedKey[:minStr(12, len(usedKey))])
+					p.log("上游%s错误(buffered): %s key=%s...", kind.logLabel(), truncate(detail, 100), usedKey[:minStr(12, len(usedKey))])
 				}
-				// Debug dump: GetChatMessage 响应（小包）
+
 				if p.DebugDumpEnabled() && strings.Contains(path, "GetChatMessage") {
 					if dumpPath, err := WriteProtoDump("resp_small_"+pathTail, bodyBytes); err == nil {
 						p.log("📝 dump 响应(buffered): %s", dumpPath)
 					}
 				}
+
+				if isBilling {
+					p.recordMitmUsage(resp.Request, usedKey, 0, kind, detail)
+				}
 			}
 			resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		} else if shouldWatchStream {
-			// Debug dump: 对流式响应包装一个 tee 来捕获前几个 chunk
+			// ★ 流式响应: 用 ConnectStreamWatcher 检测 EOS trailer 帧中的错误
 			var dumpBody io.ReadCloser
 			if p.DebugDumpEnabled() && strings.Contains(path, "GetChatMessage") {
 				dumpBody = newDumpTeeBody(resp.Body, "resp_stream_"+pathTail, p)
 			}
-
 			baseBody := resp.Body
 			if dumpBody != nil {
 				baseBody = dumpBody
 			}
-			resp.Body = newQuotaStreamWatchBody(baseBody, func(detail string) {
-				p.log("流式额度耗尽: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-				rotatedKey := p.markRuntimeExhaustedAndRotate(usedKey, detail)
-				if rotatedKey != "" {
-					p.log("★ 流式额度耗尽立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
-				}
-			}, func() {
-				gs := resp.Trailer.Get("grpc-status")
-				gm := resp.Trailer.Get("grpc-message")
-				kind, detail := classifyUpstreamFailure(gs, gm, "")
-				if kind == upstreamFailureQuota {
-					p.log("流式 trailer 额度耗尽: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-					rotatedKey := p.markRuntimeExhaustedAndRotate(usedKey, detail)
-					if rotatedKey != "" {
-						p.log("★ 流式 trailer 额度耗尽立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+
+			resp.Body = NewConnectStreamWatcher(baseBody,
+				// onError: Connect EOS 帧检测到错误
+				func(ce ConnectErrorResult) {
+					kind, detail := ClassifyConnectError(ce)
+					p.log("流式Connect错误: %s code=%s msg=%s kind=%s key=%s...",
+						pathTail, ce.Code, truncate(ce.Message, 80), kind, usedKey[:minStr(12, len(usedKey))])
+					switch kind {
+					case upstreamFailureQuota:
+						if rotatedKey := p.markRuntimeExhaustedAndRotate(usedKey, detail); rotatedKey != "" {
+							p.log("★ 流式额度耗尽轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+						}
+					case upstreamFailureRateLimit:
+						if rotatedKey := p.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
+							p.log("★ 流式限速轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+						}
+					case upstreamFailureAuth, upstreamFailurePermission:
+						if rotatedKey := p.rotateAfterAuthFailure(usedKey, detail); rotatedKey != "" {
+							p.log("★ 流式认证失败轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+						}
+					default:
+						p.recordUpstreamFailure(kind, detail, usedKey)
+						p.log("流式上游%s错误: %s key=%s...", kind.logLabel(), truncate(detail, 100), usedKey[:minStr(12, len(usedKey))])
 					}
-					return
-				}
-				if kind == upstreamFailureRateLimit {
-					p.log("流式 trailer 限速命中: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-					rotatedKey := p.markRateLimitedAndRotate(usedKey, detail)
-					if rotatedKey != "" {
-						p.log("★ 流式 trailer 限速立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+					// Only record usage if it's billing endpoint
+					if isBilling {
+						p.recordMitmUsage(resp.Request, usedKey, 0, kind, detail)
 					}
-					return
-				}
-				if kind == upstreamFailureAuth {
-					p.log("流式 trailer 认证失败: %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
-					rotatedKey := p.rotateAfterAuthFailure(usedKey, detail)
-					if rotatedKey != "" {
-						p.log("★ 流式 trailer 认证失败立即轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+				},
+				// onSuccess: 流式结束无错误
+				func(completionTokens int) {
+					p.mu.Lock()
+					if state := p.keyStates[usedKey]; state != nil {
+						state.recordSuccess()
 					}
-					return
-				}
-				if kind != upstreamFailureNone {
-					p.recordUpstreamFailure(kind, detail, usedKey)
-					p.log("流式上游%s错误: %s key=%s...", kind.logLabel(), detail, usedKey[:minStr(12, len(usedKey))])
-					return
-				}
-				p.mu.Lock()
-				if state := p.keyStates[usedKey]; state != nil {
-					state.recordSuccess()
-				}
-				p.mu.Unlock()
-			})
+					p.mu.Unlock()
+					if isBilling {
+						p.recordMitmUsage(resp.Request, usedKey, completionTokens, upstreamFailureNone, "")
+					}
+				},
+			)
 		} else if isBilling && resp.StatusCode == 200 {
 			isSuccess = true
+			p.recordMitmUsage(resp.Request, usedKey, 0, upstreamFailureNone, "")
 		}
 	}
 
@@ -1181,6 +1633,35 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 			}
 		}
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	}
+
+	// Forge GetUserStatus / GetPlanStatus responses
+	p.mu.RLock()
+	forgeCfg := p.forgeConfig
+	p.mu.RUnlock()
+	if forgeCfg.Enabled && resp.StatusCode == 200 && resp.Body != nil {
+		isUserStatus := strings.Contains(path, "GetUserStatus")
+		isPlanStatus := strings.Contains(path, "GetPlanStatus")
+		if isUserStatus || isPlanStatus {
+			forgeBody, forgeErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if forgeErr == nil && len(forgeBody) > 0 {
+				var forged []byte
+				if isUserStatus {
+					forged = forgeUserStatusResponse(forgeBody, forgeCfg)
+				} else {
+					forged = forgePlanStatusResponse(forgeBody, forgeCfg)
+				}
+				resp.Body = io.NopCloser(bytes.NewReader(forged))
+				resp.ContentLength = int64(len(forged))
+				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(forged)))
+				resp.Header.Del("Content-Encoding")
+				resp.Header.Del("Transfer-Encoding")
+				p.log("伪造 %s: %s (%d→%d bytes)", pathTail, forgeCfg.FakeSubType, len(forgeBody), len(forged))
+			} else {
+				resp.Body = io.NopCloser(bytes.NewReader(forgeBody))
+			}
+		}
 	}
 
 	// Update key state
@@ -1212,6 +1693,7 @@ func (p *MitmProxy) pickPoolKeyAndJWT() (string, []byte) {
 
 	// Check if current key is still available
 	currentKey := p.poolKeys[p.currentIdx]
+	previousKey := currentKey
 	state := p.keyStates[currentKey]
 	rotatedKey := ""
 	if state != nil && !state.isAvailable() {
@@ -1223,8 +1705,8 @@ func (p *MitmProxy) pickPoolKeyAndJWT() (string, []byte) {
 	keys := make([]string, len(p.poolKeys))
 	copy(keys, p.poolKeys)
 	p.mu.Unlock()
-	if rotatedKey != "" {
-		p.syncCurrentAPIKeyToClient(rotatedKey)
+	if rotatedKey != "" && rotatedKey != previousKey {
+		p.syncCurrentAPIKeyToClient(rotatedKey, MitmCurrentKeyChangeReasonUnavailableRotate)
 	}
 
 	jwt := p.usableJWTForKey(currentKey)
@@ -1236,6 +1718,7 @@ func (p *MitmProxy) pickPoolKeyAndJWT() (string, []byte) {
 			k := keys[idx]
 			j := p.usableJWTForKey(k)
 			if len(j) > 0 {
+				changed := k != currentKey
 				p.mu.Lock()
 				for liveIdx, liveKey := range p.poolKeys {
 					if liveKey == k {
@@ -1244,6 +1727,9 @@ func (p *MitmProxy) pickPoolKeyAndJWT() (string, []byte) {
 					}
 				}
 				p.mu.Unlock()
+				if changed {
+					p.syncCurrentAPIKeyToClient(k, MitmCurrentKeyChangeReasonJWTFallback)
+				}
 				return k, j
 			}
 		}
@@ -1273,22 +1759,43 @@ func (p *MitmProxy) rotateKey() string {
 		}
 	}
 
-	// All exhausted: pick the one with shortest cooldown
-	bestIdx := (p.currentIdx + 1) % len(p.poolKeys)
-	bestCooldown := time.Duration(1<<63 - 1)
+	// All keys unavailable. Priority:
+	//  1. Non-disabled, non-RuntimeExhausted (just cooling down) → shortest cooldown
+	//  2. RuntimeExhausted but not disabled → shortest cooldown (App 层可能已刷新额度)
+	//  3. Disabled → last resort
+	type candidate struct {
+		idx      int
+		priority int // 0=cooldown, 1=exhausted, 2=disabled
+		cd       time.Duration
+	}
+	var candidates []candidate
 	for i, k := range p.poolKeys {
 		state := p.keyStates[k]
-		if state != nil {
-			cd := time.Until(state.CooldownUntil)
-			if cd < bestCooldown {
-				bestCooldown = cd
-				bestIdx = i
-			}
+		if state == nil {
+			continue
+		}
+		pri := 0
+		if state.Disabled {
+			pri = 2
+		} else if state.RuntimeExhausted {
+			pri = 1
+		}
+		candidates = append(candidates, candidate{idx: i, priority: pri, cd: time.Until(state.CooldownUntil)})
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	// Sort: lowest priority first, then shortest cooldown
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if c.priority < best.priority || (c.priority == best.priority && c.cd < best.cd) {
+			best = c
 		}
 	}
-	p.currentIdx = bestIdx
-	p.log("所有 key 耗尽，选最短冷却: %s...", p.poolKeys[bestIdx][:minStr(12, len(p.poolKeys[bestIdx]))])
-	return p.poolKeys[bestIdx]
+	p.currentIdx = best.idx
+	chosen := p.poolKeys[best.idx]
+	p.log("所有 key 不可用，选优先级最高者: %s... (pri=%d cd=%v)", chosen[:minStr(12, len(chosen))], best.priority, best.cd)
+	return chosen
 }
 
 // SwitchToKey 手动切换 MITM 代理到指定 API Key（前端「切换到此账号」「下一席位」调用）
@@ -1315,7 +1822,7 @@ func (p *MitmProxy) SwitchToKey(apiKey string) bool {
 	if switchedKey == "" {
 		return false
 	}
-	p.syncCurrentAPIKeyToClient(switchedKey)
+	p.syncCurrentAPIKeyToClient(switchedKey, MitmCurrentKeyChangeReasonManualSwitch)
 	return true
 }
 
@@ -1340,8 +1847,297 @@ func (p *MitmProxy) SwitchToNext() string {
 		return ""
 	}
 	p.log("手动切换到下一席位: %s...", nextKey[:minStr(12, len(nextKey))])
-	p.syncCurrentAPIKeyToClient(nextKey)
+	p.syncCurrentAPIKeyToClient(nextKey, MitmCurrentKeyChangeReasonManualNext)
 	return nextKey
+}
+
+// ── Session-aware pool key selection ──
+
+// isChatPath returns true for endpoints that should use per-session routing.
+func isChatPath(path string) bool {
+	return strings.Contains(path, "GetChatMessage") ||
+		strings.Contains(path, "GetChatMessageBurst") ||
+		strings.Contains(path, "GetCompletions")
+}
+
+// mayHaveConversationID returns true for paths that might carry a conversation_id.
+// Chat paths + Cortex/Trajectory session lifecycle paths.
+// Identity paths (GetUserStatus/Ping/GetProfileData/...) return false → skip body parsing.
+func mayHaveConversationID(path string) bool {
+	return isChatPath(path) ||
+		strings.Contains(path, "Cortex") ||
+		strings.Contains(path, "Trajectory")
+}
+
+// sessionBindingCount returns how many active sessions are bound to the given key.
+// Caller must hold sessionsMu (read or write).
+func (p *MitmProxy) sessionBindingCount(poolKey string) int {
+	count := 0
+	for _, b := range p.sessionMap {
+		if b.PoolKey == poolKey {
+			count++
+		}
+	}
+	return count
+}
+
+// leastConnectionsKey selects the healthy pool key with the fewest bound sessions.
+// excludeKey is skipped (e.g. the exhausted key being rotated away from).
+// Caller must hold p.mu (read).
+func (p *MitmProxy) leastConnectionsKey(excludeKey string) string {
+	bestKey := ""
+	bestCount := int(^uint(0) >> 1) // max int
+	bestReqs := int(^uint(0) >> 1)
+
+	for _, k := range p.poolKeys {
+		if k == excludeKey {
+			continue
+		}
+		state := p.keyStates[k]
+		if state == nil || !state.isAvailable() {
+			continue
+		}
+		// Check JWT availability
+		p.jwtLock.RLock()
+		hasJWT := len(state.JWT) > 0
+		p.jwtLock.RUnlock()
+		if !hasJWT {
+			continue
+		}
+
+		count := p.sessionBindingCount(k)
+		if count < bestCount || (count == bestCount && state.RequestCount < bestReqs) {
+			bestKey = k
+			bestCount = count
+			bestReqs = state.RequestCount
+		}
+	}
+	return bestKey
+}
+
+// pickPoolKeyForSession selects a pool key for a specific conversation.
+// - If convID is already bound and the bound key is healthy → sticky return
+// - If convID is unbound or bound key is unavailable → least-connections assignment
+// - excludeKeys: keys to avoid (e.g. a key that just caused cascade session failure)
+// Returns (poolKey, jwt).
+func (p *MitmProxy) pickPoolKeyForSession(convID string, excludeKeys ...string) (string, []byte) {
+	p.sessionsMu.Lock()
+
+	// Check existing binding
+	if binding, ok := p.sessionMap[convID]; ok {
+		// 如果绑定的 key 在排除列表中，跳过 sticky
+		excluded := false
+		for _, ek := range excludeKeys {
+			if ek == binding.PoolKey {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			p.mu.RLock()
+			state := p.keyStates[binding.PoolKey]
+			available := state != nil && state.isAvailable()
+			// ★ 会话粘性保护：已有 conversation 绑定的 key 始终保持粘性
+			// 即使额度耗尽/限速冷却也不迁移 — 迁移后新号没有该 conversation 的 session，
+			// 必然 Invalid Cascade session。额度耗尽只影响新对话的 key 分配。
+			// 唯一放弃粘性的情况：key 被永久禁用(Disabled)
+			stickyOverride := false
+			if !available && state != nil && !state.Disabled {
+				stickyOverride = true
+			}
+			p.mu.RUnlock()
+
+			if available || stickyOverride {
+				jwt := p.usableJWTForKey(binding.PoolKey)
+				if len(jwt) > 0 {
+					binding.LastSeenAt = time.Now()
+					binding.RequestCount++
+					p.sessionsMu.Unlock()
+					if stickyOverride {
+						reason := "限速冷却"
+						if state != nil && state.RuntimeExhausted {
+							reason = "额度耗尽"
+						}
+						p.log("会话 %s... 绑定的 key %s... %s中，保持粘性（避免迁移）",
+							convID[:minStr(8, len(convID))],
+							binding.PoolKey[:minStr(12, len(binding.PoolKey))],
+							reason)
+					}
+					return binding.PoolKey, jwt
+				}
+			}
+		}
+		// Bound key unavailable (额度耗尽/禁用) or excluded — need to migrate this session
+		p.log("会话 %s... 绑定的 key %s... 不可用(耗尽/禁用)或被排除，重新分配",
+			convID[:minStr(8, len(convID))],
+			binding.PoolKey[:minStr(12, len(binding.PoolKey))])
+	}
+
+	// Assign new key using least-connections, excluding specified keys
+	excludeKey := ""
+	if len(excludeKeys) > 0 {
+		excludeKey = excludeKeys[0]
+	}
+	p.mu.RLock()
+	newKey := p.leastConnectionsKey(excludeKey)
+	p.mu.RUnlock()
+
+	// 如果排除后没找到，不排除再试一次
+	if newKey == "" && excludeKey != "" {
+		p.mu.RLock()
+		newKey = p.leastConnectionsKey("")
+		p.mu.RUnlock()
+	}
+
+	if newKey == "" {
+		// Fallback to global selection
+		p.sessionsMu.Unlock()
+		return p.pickPoolKeyAndJWT()
+	}
+
+	jwt := p.usableJWTForKey(newKey)
+	if len(jwt) == 0 {
+		p.sessionsMu.Unlock()
+		return p.pickPoolKeyAndJWT()
+	}
+
+	// Create or update binding
+	if existing, ok := p.sessionMap[convID]; ok {
+		oldKey := existing.PoolKey
+		existing.PoolKey = newKey
+		existing.Migrated = true
+		existing.LastSeenAt = time.Now()
+		existing.RequestCount++
+		p.sessionsMu.Unlock()
+		p.log("会话迁移: %s... conv=%s... → %s...",
+			oldKey[:minStr(12, len(oldKey))], convID[:minStr(8, len(convID))],
+			newKey[:minStr(12, len(newKey))])
+		return newKey, jwt
+	}
+
+	p.sessionMap[convID] = &SessionBinding{
+		ConversationID: convID,
+		PoolKey:        newKey,
+		BoundAt:        time.Now(),
+		LastSeenAt:     time.Now(),
+		RequestCount:   1,
+	}
+
+	// Evict oldest entries if over limit
+	if len(p.sessionMap) > sessionMapMaxEntries {
+		var oldestID string
+		oldestTime := time.Now()
+		for id, b := range p.sessionMap {
+			if b.LastSeenAt.Before(oldestTime) {
+				oldestTime = b.LastSeenAt
+				oldestID = id
+			}
+		}
+		if oldestID != "" {
+			delete(p.sessionMap, oldestID)
+		}
+	}
+
+	p.sessionsMu.Unlock()
+	p.log("会话绑定: conv=%s... → key=%s... (绑定数=%d)",
+		convID[:minStr(8, len(convID))], newKey[:minStr(12, len(newKey))],
+		p.sessionBindingCount(newKey)+1)
+	return newKey, jwt
+}
+
+// migrateSessionsFromKey moves all sessions bound to exhaustedKey to other healthy keys.
+func (p *MitmProxy) migrateSessionsFromKey(exhaustedKey string) {
+	p.sessionsMu.Lock()
+	defer p.sessionsMu.Unlock()
+
+	migrated := 0
+	for convID, binding := range p.sessionMap {
+		if binding.PoolKey != exhaustedKey {
+			continue
+		}
+		p.mu.RLock()
+		newKey := p.leastConnectionsKey(exhaustedKey)
+		p.mu.RUnlock()
+		if newKey != "" {
+			binding.PoolKey = newKey
+			binding.Migrated = true
+			migrated++
+			p.log("会话迁移: %s... → %s... (conv=%s...)",
+				exhaustedKey[:minStr(12, len(exhaustedKey))],
+				newKey[:minStr(12, len(newKey))],
+				convID[:minStr(8, len(convID))])
+		}
+	}
+	if migrated > 0 {
+		p.log("完成会话迁移: %d 个会话从 %s... 迁出", migrated, exhaustedKey[:minStr(12, len(exhaustedKey))])
+	}
+}
+
+// cleanExpiredSessions removes sessions that haven't been seen for sessionExpireMinutes.
+func (p *MitmProxy) cleanExpiredSessions() {
+	p.sessionsMu.Lock()
+	defer p.sessionsMu.Unlock()
+
+	cutoff := time.Now().Add(-time.Duration(sessionExpireMinutes) * time.Minute)
+	removed := 0
+	for id, b := range p.sessionMap {
+		if b.LastSeenAt.Before(cutoff) {
+			delete(p.sessionMap, id)
+			removed++
+		}
+	}
+	if removed > 0 {
+		p.log("清理过期会话: %d 个 (剩余 %d)", removed, len(p.sessionMap))
+	}
+}
+
+// GetSessionBindings returns a snapshot of active session bindings for the frontend.
+func (p *MitmProxy) GetSessionBindings() []SessionBindingInfo {
+	p.sessionsMu.RLock()
+	defer p.sessionsMu.RUnlock()
+
+	result := make([]SessionBindingInfo, 0, len(p.sessionMap))
+	for _, b := range p.sessionMap {
+		convShort := b.ConversationID
+		if len(convShort) > 12 {
+			convShort = convShort[:8] + "..." + convShort[len(convShort)-4:]
+		}
+		keyShort := b.PoolKey
+		if len(keyShort) > 16 {
+			keyShort = keyShort[:16] + "..."
+		}
+		result = append(result, SessionBindingInfo{
+			ConvIDShort:  convShort,
+			PoolKeyShort: keyShort,
+			BoundAt:      b.BoundAt.Format(time.RFC3339),
+			LastSeenAt:   b.LastSeenAt.Format(time.RFC3339),
+			RequestCount: b.RequestCount,
+			Title:        b.Title,
+		})
+	}
+	return result
+}
+
+// UnbindSession removes a specific session binding by conversation_id prefix.
+func (p *MitmProxy) UnbindSession(convIDPrefix string) bool {
+	p.sessionsMu.Lock()
+	defer p.sessionsMu.Unlock()
+
+	for id := range p.sessionMap {
+		if strings.HasPrefix(id, convIDPrefix) || id == convIDPrefix {
+			delete(p.sessionMap, id)
+			p.log("手动解绑会话: %s...", convIDPrefix[:minStr(8, len(convIDPrefix))])
+			return true
+		}
+	}
+	return false
+}
+
+// SessionCount returns the number of active session bindings.
+func (p *MitmProxy) SessionCount() int {
+	p.sessionsMu.RLock()
+	defer p.sessionsMu.RUnlock()
+	return len(p.sessionMap)
 }
 
 // ── JWT management ──
@@ -1426,6 +2222,13 @@ func cloneBytes(src []byte) []byte {
 	return out
 }
 
+func (p *MitmProxy) keyIsDisabled(apiKey string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	state := p.keyStates[apiKey]
+	return state != nil && state.Disabled
+}
+
 func (p *MitmProxy) markJWTReady() {
 	p.jwtOnce.Do(func() {
 		close(p.jwtReady)
@@ -1468,6 +2271,9 @@ func (p *MitmProxy) fetchJWTForKey(apiKey string, force bool) []byte {
 	if apiKey == "" || p.windsurfSvc == nil || !strings.HasPrefix(apiKey, "sk-ws-") {
 		return nil
 	}
+	if p.keyIsDisabled(apiKey) {
+		return nil
+	}
 	call, cached, leader := p.beginJWTFetch(apiKey, force)
 	if len(cached) > 0 {
 		p.markJWTReady()
@@ -1482,6 +2288,9 @@ func (p *MitmProxy) fetchJWTForKey(apiKey string, force bool) []byte {
 	jwt, err := getJWTByAPIKeyFn(p.windsurfSvc, apiKey)
 	if err != nil {
 		p.finishJWTFetch(apiKey, call, nil, err)
+		if isJWTAccessDeniedError(err) {
+			p.markKeyDisabled(apiKey, err.Error())
+		}
 		if force {
 			p.log("JWT 强制刷新失败: %s... (%v)", apiKey[:minStr(12, len(apiKey))], err)
 		} else {
@@ -1507,6 +2316,37 @@ func (p *MitmProxy) ensureJWTForKey(apiKey string) []byte {
 
 func (p *MitmProxy) refreshJWTForKey(apiKey string) []byte {
 	return p.fetchJWTForKey(apiKey, true)
+}
+
+func isJWTAccessDeniedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(err.Error()))
+	if !strings.Contains(lower, "http 403") {
+		return false
+	}
+	return strings.Contains(lower, "permission_denied") ||
+		strings.Contains(lower, "permission denied") ||
+		strings.Contains(lower, "forbidden") ||
+		strings.Contains(lower, "user is disabled in windsurf team") ||
+		strings.Contains(lower, "subscription is not active")
+}
+
+func isPersistentJWTAccessDeniedDetail(detail string) bool {
+	lower := strings.ToLower(strings.TrimSpace(detail))
+	if lower == "" {
+		return false
+	}
+	if isRateLimitText(lower) {
+		return false
+	}
+	return strings.Contains(lower, `"code":"permission_denied"`) ||
+		strings.Contains(lower, "'code':'permission_denied'") ||
+		strings.Contains(lower, "[permission_denied]") ||
+		strings.Contains(lower, "permission_denied") ||
+		strings.Contains(lower, "user is disabled in windsurf team") ||
+		strings.Contains(lower, "subscription is not active")
 }
 
 func (p *MitmProxy) prefetchSpecificJWTs(keys []string, force bool) {
@@ -1564,16 +2404,20 @@ func (p *MitmProxy) refreshJWTsOnce() {
 }
 
 func (p *MitmProxy) jwtRefreshLoop() {
-	ticker := time.NewTicker(jwtRefreshMinutes * time.Minute)
-	defer ticker.Stop()
+	jwtTicker := time.NewTicker(jwtRefreshMinutes * time.Minute)
+	sessionTicker := time.NewTicker(5 * time.Minute) // 每 5 分钟清理过期会话
+	defer jwtTicker.Stop()
+	defer sessionTicker.Stop()
 
 	for {
 		select {
 		case <-p.stopCh:
 			return
-		case <-ticker.C:
+		case <-jwtTicker.C:
 			p.log("定时刷新当前 key 的 JWT...")
 			p.refreshJWTsOnce()
+		case <-sessionTicker.C:
+			p.cleanExpiredSessions()
 		}
 	}
 }
@@ -1622,6 +2466,46 @@ func decodeGRPCMessage(raw string) string {
 		return decoded
 	}
 	return raw
+}
+
+func isCascadeRetryPath(path string) bool {
+	// 所有可能携带 conversation_id 的 Connect 端点都应允许重试
+	// 不仅仅是 GetChatMessage/GetCompletions，还有 GetChatContext 等
+	path = strings.ToLower(strings.TrimSpace(path))
+	return strings.Contains(path, "windsurf.ai_codeium_windsurf_service") ||
+		strings.Contains(path, "getchatmessage") ||
+		strings.Contains(path, "getcompletions") ||
+		strings.Contains(path, "getchatcontext") ||
+		strings.Contains(path, "acceptcompletion") ||
+		strings.Contains(path, "getprocesses") ||
+		strings.Contains(path, "chatcontext") ||
+		strings.Contains(path, "language_server_service") ||
+		strings.Contains(path, "seat_management_service")
+}
+
+func isInvalidCascadeSessionText(textLower string) bool {
+	return strings.Contains(textLower, "invalid cascade session") ||
+		((strings.Contains(textLower, "failed_precondition") || strings.Contains(textLower, "failed precondition")) &&
+			strings.Contains(textLower, "cascade session"))
+}
+
+func isCascadeSessionFailure(grpcStatus, grpcMessage, bodyText string) bool {
+	status := strings.TrimSpace(grpcStatus)
+	msg := strings.ToLower(decodeGRPCMessage(grpcMessage))
+	body := strings.ToLower(strings.TrimSpace(bodyText))
+	combined := strings.TrimSpace(body + "\n" + msg)
+	if !isInvalidCascadeSessionText(combined) {
+		return false
+	}
+	return status == "" || status == "9" || status == "13"
+}
+
+func safeUsedKeyForLog(apiKey string) string {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return "<no-key>"
+	}
+	return apiKey[:minStr(12, len(apiKey))] + "..."
 }
 
 func classifyUpstreamFailure(grpcStatus, grpcMessage, bodyText string) (upstreamFailureKind, string) {
@@ -1713,9 +2597,16 @@ func isRateLimitText(textLower string) bool {
 		"rate limit error",
 		"rate limit",
 		"rate_limit",
+		"global rate limit",
+		"over their global rate limit",
+		"all api providers are over",
+		"message limit",
+		"limit will reset",
 		"too many requests",
 		"try again in about an hour",
+		"upgrade to pro for higher limits",
 		"higher limits",
+		"add-credits",
 		"no credits were used",
 	}
 	for _, pat := range patterns {

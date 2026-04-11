@@ -36,6 +36,20 @@ type Settings struct {
 	MitmProxyEnabled bool `json:"mitm_proxy_enabled"`
 	// MitmDebugDump 开启后，MITM 拦截 GetChatMessage 时将请求/响应的 protobuf 字段树写入 proto_dumps/ 目录
 	MitmDebugDump bool `json:"mitm_debug_dump"`
+	// MitmFullCapture 开启后，全量记录 MITM 代理的所有请求/响应到 capture/ 目录（JSONL + body 文件）
+	MitmFullCapture bool `json:"mitm_full_capture"`
+
+	// ── 静态响应缓存 ──
+	StaticCacheIntercept bool `json:"static_cache_intercept"`
+
+	// ── GetUserStatus 伪造 ──
+	ForgeEnabled           bool   `json:"forge_enabled"`
+	FakeCredits            int    `json:"fake_credits"`
+	FakeCreditsPremium     int    `json:"fake_credits_premium"`
+	FakeCreditsOther       int    `json:"fake_credits_other"`
+	FakeCreditsUsed        int    `json:"fake_credits_used"`
+	FakeSubscriptionType   string `json:"fake_subscription_type"`
+	FakeBillingExtendYears int    `json:"fake_billing_extend_years"`
 
 	// DebugLog 开启后将切号/代理/额度判定等关键日志写入文件 debug.log
 	DebugLog bool `json:"debug_log"`
@@ -70,6 +84,15 @@ func DefaultSettings() Settings {
 		MitmTunMode:                false,
 		MitmProxyEnabled:           false,
 		MitmDebugDump:              false,
+		MitmFullCapture:            false,
+		StaticCacheIntercept:       true,
+		ForgeEnabled:               false,
+		FakeCredits:                10000000,
+		FakeCreditsPremium:         150000,
+		FakeCreditsOther:           25000,
+		FakeCreditsUsed:            0,
+		FakeSubscriptionType:       "Enterprise",
+		FakeBillingExtendYears:     10,
 		DebugLog:                   false,
 		ImportConcurrency:          3,
 		OpenAIRelayEnabled:         false,

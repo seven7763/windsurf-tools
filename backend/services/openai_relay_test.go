@@ -1,4 +1,4 @@
-package services
+﻿package services
 
 import (
 	"encoding/binary"
@@ -14,9 +14,16 @@ import (
 )
 
 func newTestRelay() *OpenAIRelay {
-	proxy := NewMitmProxy(nil, nil, "")
+	proxy := NewMitmProxy(&WindsurfService{client: &http.Client{}}, nil, "", nil)
 	proxy.SetPoolKeys([]string{"sk-ws-test1", "sk-ws-test2"})
-	return NewOpenAIRelay(proxy, func(msg string) {}, "")
+	return NewOpenAIRelay(proxy, func(msg string) {}, "", nil)
+}
+
+func TestNewOpenAIRelayUsesSingleReplayBudget(t *testing.T) {
+	relay := newTestRelay()
+	if relay.maxRetry != defaultReplayBudget {
+		t.Fatalf("relay.maxRetry = %d, want %d", relay.maxRetry, defaultReplayBudget)
+	}
 }
 
 func TestRelayHealthEndpoint(t *testing.T) {
@@ -169,6 +176,29 @@ func TestRelayStartStop(t *testing.T) {
 	}
 }
 
+func TestRelayCORSPreflightAllowsQuickTest(t *testing.T) {
+	relay := newTestRelay()
+	handler := relay.withCORS(http.HandlerFunc(relay.handleChatCompletions))
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/chat/completions", nil)
+	req.Header.Set("Origin", "http://wails.localhost")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://wails.localhost" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want request origin", got)
+	}
+	if !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "Content-Type") {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want Content-Type", w.Header().Get("Access-Control-Allow-Headers"))
+	}
+}
+
 func reserveTestPort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -230,6 +260,87 @@ func TestTruncKey(t *testing.T) {
 	got = truncKey("short")
 	if got != "short" {
 		t.Fatalf("truncKey short = %q", got)
+	}
+}
+
+func TestBuildGetChatMessageRequestUsesConnectProtocol(t *testing.T) {
+	payload := []byte{0x00, 0x00, 0x00, 0x00, 0x03, 0x66, 0x6f, 0x6f}
+	req, err := buildGetChatMessageRequest("1.2.3.4", payload, "jwt-a")
+	if err != nil {
+		t.Fatalf("buildGetChatMessageRequest() error = %v", err)
+	}
+
+	if got := req.Method; got != http.MethodPost {
+		t.Fatalf("Method = %q, want %q", got, http.MethodPost)
+	}
+	if got := req.URL.String(); got != "https://1.2.3.4/exa.api_server_pb.ApiServerService/GetChatMessage" {
+		t.Fatalf("URL = %q", got)
+	}
+	if got := req.Host; got != GRPCUpstreamHost {
+		t.Fatalf("Host = %q, want %q", got, GRPCUpstreamHost)
+	}
+	if got := req.Header.Get("Content-Type"); got != "application/connect+proto" {
+		t.Fatalf("Content-Type = %q, want application/connect+proto", got)
+	}
+	if got := req.Header.Get("Connect-Protocol-Version"); got != "1" {
+		t.Fatalf("Connect-Protocol-Version = %q, want 1", got)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer jwt-a" {
+		t.Fatalf("Authorization = %q, want %q", got, "Bearer jwt-a")
+	}
+	if got := req.Header.Get("User-Agent"); got != "connect-es/1.6.1" {
+		t.Fatalf("User-Agent = %q, want %q", got, "connect-es/1.6.1")
+	}
+	if got := req.Header.Get("X-Client-Name"); got != WindsurfAppName {
+		t.Fatalf("X-Client-Name = %q, want %q", got, WindsurfAppName)
+	}
+	if got := req.Header.Get("X-Client-Version"); got != WindsurfVersion {
+		t.Fatalf("X-Client-Version = %q, want %q", got, WindsurfVersion)
+	}
+	if got := req.Header.Get("Te"); got != "" {
+		t.Fatalf("Te = %q, want empty for Connect requests", got)
+	}
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("ReadAll(req.Body) error = %v", err)
+	}
+	if string(body) != string(payload) {
+		t.Fatalf("body = %x, want %x", body, payload)
+	}
+}
+
+func TestSendGRPCRetriesTransientEOF(t *testing.T) {
+	relay := newTestRelay()
+	calls := 0
+	relay.upstream = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return nil, io.EOF
+		}
+		payload := appendGRPCFrame(nil, encodeBytesField(1, []byte("hello")))
+		return &http.Response{
+			StatusCode:    200,
+			ContentLength: int64(len(payload)),
+			Body:          io.NopCloser(strings.NewReader(string(payload))),
+			Header:        make(http.Header),
+			Trailer:       make(http.Header),
+			Request:       req,
+		}, nil
+	})
+
+	resp, kind, err := relay.sendGRPC([]byte("payload"), "sk-ws-test1", "jwt-a")
+	if err != nil {
+		t.Fatalf("sendGRPC() error = %v", err)
+	}
+	if kind != upstreamFailureNone {
+		t.Fatalf("sendGRPC() kind = %q, want none", kind)
+	}
+	if resp == nil {
+		t.Fatal("sendGRPC() response is nil")
+	}
+	if calls != 2 {
+		t.Fatalf("upstream calls = %d, want 2", calls)
 	}
 }
 
@@ -425,15 +536,15 @@ func TestFinalizeRelayOutcome_RateLimitRotatesToNextKey(t *testing.T) {
 	}
 }
 
-func TestFinalizeRelayOutcome_AuthRotatesToNextKeyBeforeRefreshingJWT(t *testing.T) {
+func TestFinalizeRelayOutcome_AuthNonPersistentRefreshesJWTInBackground(t *testing.T) {
 	originalGetJWT := getJWTByAPIKeyFn
 	t.Cleanup(func() {
 		getJWTByAPIKeyFn = originalGetJWT
 	})
 
-	refreshCalls := 0
+	refreshCh := make(chan string, 1)
 	getJWTByAPIKeyFn = func(_ *WindsurfService, apiKey string) (string, error) {
-		refreshCalls++
+		refreshCh <- apiKey
 		return "jwt-refresh-" + apiKey, nil
 	}
 
@@ -443,15 +554,22 @@ func TestFinalizeRelayOutcome_AuthRotatesToNextKeyBeforeRefreshingJWT(t *testing
 
 	relay.finalizeRelayOutcome("sk-ws-test1", upstreamFailureAuth, "Unauthenticated: an internal error occurred")
 
-	if refreshCalls != 0 {
-		t.Fatalf("getJWTByAPIKeyFn calls = %d, want 0", refreshCalls)
+	// 非永久性 auth 错误不切号，保持在 test1
+	if got := relay.proxy.CurrentAPIKey(); got != "sk-ws-test1" {
+		t.Fatalf("CurrentAPIKey() = %q, want %q (non-persistent auth should NOT rotate)", got, "sk-ws-test1")
 	}
-	if got := relay.proxy.CurrentAPIKey(); got != "sk-ws-test2" {
-		t.Fatalf("CurrentAPIKey() = %q, want %q", got, "sk-ws-test2")
+	// 后台异步触发 JWT 刷新
+	select {
+	case key := <-refreshCh:
+		if key != "sk-ws-test1" {
+			t.Fatalf("JWT refresh key = %q, want %q", key, "sk-ws-test1")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("JWT refresh was not triggered in background")
 	}
 }
 
-func TestHandleChatCompletionsAuthFailureRotatesToNextKeyAndRetries(t *testing.T) {
+func TestHandleChatCompletionsAuthFailureRefreshesJWTAndRetries(t *testing.T) {
 	originalGetJWT := getJWTByAPIKeyFn
 	t.Cleanup(func() {
 		getJWTByAPIKeyFn = originalGetJWT
@@ -460,7 +578,7 @@ func TestHandleChatCompletionsAuthFailureRotatesToNextKeyAndRetries(t *testing.T
 	refreshCalls := 0
 	getJWTByAPIKeyFn = func(_ *WindsurfService, apiKey string) (string, error) {
 		refreshCalls++
-		return "jwt-refresh-" + apiKey, nil
+		return "jwt-refreshed", nil
 	}
 
 	relay := newTestRelay()
@@ -482,9 +600,7 @@ func TestHandleChatCompletionsAuthFailureRotatesToNextKeyAndRetries(t *testing.T
 				Request:       req,
 			}, nil
 		}
-		if got := req.Header.Get("Authorization"); got != "Bearer jwt-b" {
-			t.Fatalf("retry request auth = %q, want %q", got, "Bearer jwt-b")
-		}
+		// 第二次用刷新后的 JWT（pickPoolKeyAndJWT 会拿到新 JWT）
 		payload := appendGRPCFrame(nil, encodeBytesField(1, []byte("hello")))
 		return &http.Response{
 			StatusCode:    200,
@@ -506,17 +622,12 @@ func TestHandleChatCompletionsAuthFailureRotatesToNextKeyAndRetries(t *testing.T
 	if calls != 2 {
 		t.Fatalf("upstream calls = %d, want 2", calls)
 	}
-	if refreshCalls != 0 {
-		t.Fatalf("getJWTByAPIKeyFn calls = %d, want 0", refreshCalls)
-	}
+	// 非永久性 auth 错误 → rotateAfterAuthFailure 返回 "" → 走 refreshJWTForKey → 重试
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), `"content":"hello"`) {
 		t.Fatalf("response body missing assistant content: %s", w.Body.String())
-	}
-	if got := relay.proxy.CurrentAPIKey(); got != "sk-ws-test2" {
-		t.Fatalf("CurrentAPIKey() = %q, want %q", got, "sk-ws-test2")
 	}
 }
 
@@ -532,10 +643,10 @@ func TestHandleChatCompletionsAuthFailureWithoutSpareReturnsAuthError(t *testing
 		return "", errors.New("refresh failed")
 	}
 
-	proxy := NewMitmProxy(&WindsurfService{}, nil, "")
+	proxy := NewMitmProxy(&WindsurfService{}, nil, "", nil)
 	proxy.SetPoolKeys([]string{"sk-ws-test1"})
 	proxy.keyStates["sk-ws-test1"].JWT = []byte("jwt-a")
-	relay := NewOpenAIRelay(proxy, func(string) {}, "")
+	relay := NewOpenAIRelay(proxy, func(string) {}, "", nil)
 
 	calls := 0
 	relay.upstream = roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -638,15 +749,52 @@ func TestHandleChatCompletionsRateLimitRotatesToNextKeyAndRetries(t *testing.T) 
 }
 
 func TestHandleChatCompletionsRateLimitWithoutSpareReturnsRateLimitError(t *testing.T) {
-	proxy := NewMitmProxy(&WindsurfService{}, nil, "")
+	proxy := NewMitmProxy(&WindsurfService{}, nil, "", nil)
 	proxy.SetPoolKeys([]string{"sk-ws-test1"})
 	proxy.keyStates["sk-ws-test1"].JWT = []byte("jwt-a")
-	relay := NewOpenAIRelay(proxy, func(string) {}, "")
+	relay := NewOpenAIRelay(proxy, func(string) {}, "", nil)
 
 	calls := 0
 	relay.upstream = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++
 		body := "Permission denied: Rate limit exceeded. Your request was not processed, and no credits were used. Please upgrade to a Pro account for higher limits or try again in about an hour. Rate limit error"
+		return &http.Response{
+			StatusCode:    200,
+			ContentLength: int64(len(body)),
+			Body:          io.NopCloser(strings.NewReader(body)),
+			Header:        http.Header{"Grpc-Status": []string{"7"}},
+			Request:       req,
+		}, nil
+	})
+
+	body := `{"model":"cascade","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	relay.handleChatCompletions(w, req)
+
+	if calls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", calls)
+	}
+	if w.Code != 429 {
+		t.Fatalf("status = %d, want 429", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"type":"rate_limit"`) {
+		t.Fatalf("response body missing rate_limit: %s", w.Body.String())
+	}
+}
+
+func TestHandleChatCompletionsMessageLimitWithoutSpareReturnsRateLimitError(t *testing.T) {
+	proxy := NewMitmProxy(&WindsurfService{}, nil, "", nil)
+	proxy.SetPoolKeys([]string{"sk-ws-test1"})
+	proxy.keyStates["sk-ws-test1"].JWT = []byte("jwt-a")
+	relay := NewOpenAIRelay(proxy, func(string) {}, "", nil)
+
+	calls := 0
+	relay.upstream = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		body := "You've reached your message limit for this model. Your limit will reset in 39 minutes. Upgrade to Pro for higher limits or try a different model. https://windsurf.com/redirect/windsurf/add-credits"
 		return &http.Response{
 			StatusCode:    200,
 			ContentLength: int64(len(body)),
