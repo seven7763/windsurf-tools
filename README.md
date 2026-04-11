@@ -35,7 +35,14 @@
 
 ## 🎨 界面缩略与核心功能 | Features & Previews
 
-#### 1. 号池统管全景 (Dashboard / Accounts)
+#### 1. 代理核心与全局总览 (Dashboard)
+直观的全局大盘！一眼确认纯 MITM 代理状态、健康度、号池总量与活跃的无感切割链路，以及中转大盘信息。
+
+| 首页总览面板 |
+| :---: |
+| ![Dashboard](docs/images/preview-dashboard.png) |
+
+#### 2. 号池统管全景 (Accounts)
 动态跟踪 `Free / Trial / Pro / Max` 全序列套餐状况。无需登录浏览器，随时监控最新订阅边界、当前运行时见底（Runtime Exhausted）、历史用量以及池绑定状况。
 
 | 账号与号池管理视图 |
