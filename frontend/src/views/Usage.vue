@@ -28,6 +28,24 @@ const filteredRecords = computed(() => {
   return records.value.filter(rec => rec.at && rec.at.startsWith(selectedDate.value!));
 });
 
+// 分页逻辑
+const currentPage = ref(1);
+const pageSize = ref(100);
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / pageSize.value)));
+
+const paginatedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return filteredRecords.value.slice(start, end);
+});
+
+import { watch } from "vue";
+watch(selectedDate, () => {
+  currentPage.value = 1;
+});
+
+
 const estimatedCost = computed(() => {
   if (!summary.value) return '0.00';
   // 通过后端精准的基于单条模型（Opus / Sonnet / GPT 等）累加得出的成本
@@ -280,7 +298,7 @@ const formatDuration = (ms: number) => {
             </thead>
             <tbody class="divide-y divide-black/[0.04] dark:divide-white/[0.04]">
               <tr 
-                v-for="rec in filteredRecords" 
+                v-for="rec in paginatedRecords" 
                 :key="rec.id"
                 class="hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors"
               >
@@ -320,6 +338,31 @@ const formatDuration = (ms: number) => {
               </tr>
             </tbody>
           </table>
+          
+          <div v-if="totalPages > 1" class="px-6 py-4 border-t border-black/[0.04] dark:border-white/[0.04] flex items-center justify-between">
+            <div class="text-[12px] text-gray-500">
+              显示 {{ (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, filteredRecords.length) }} 条，共 {{ filteredRecords.length }} 条记录
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button
+                :disabled="currentPage === 1"
+                @click="currentPage--"
+                class="px-2.5 py-1.5 rounded border border-black/[0.06] dark:border-white/[0.08] text-[12px] font-medium disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+              >
+                上一页
+              </button>
+              <div class="px-3 text-[12px] font-bold text-gray-700 dark:text-gray-300">
+                {{ currentPage }} / {{ totalPages }}
+              </div>
+              <button
+                :disabled="currentPage === totalPages"
+                @click="currentPage++"
+                class="px-2.5 py-1.5 rounded border border-black/[0.06] dark:border-white/[0.08] text-[12px] font-medium disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
