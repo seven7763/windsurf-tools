@@ -39,6 +39,7 @@ jobs:
             platform: linux/amd64
             artifact_name: windsurf-tools-wails-linux-amd64
             webkit_pkg: libwebkit2gtk-4.1-dev
+            build_tags: webkit2_41
           - os: ubuntu-22.04
             label: linux-amd64-legacy
             platform: linux/amd64
