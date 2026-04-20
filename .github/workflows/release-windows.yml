@@ -38,6 +38,13 @@ jobs:
             label: linux-amd64
             platform: linux/amd64
             artifact_name: windsurf-tools-wails-linux-amd64
+            webkit_pkg: libwebkit2gtk-4.1-dev
+          - os: ubuntu-22.04
+            label: linux-amd64-legacy
+            platform: linux/amd64
+            artifact_name: windsurf-tools-wails-linux-amd64-legacy
+            webkit_pkg: libwebkit2gtk-4.0-dev
+            build_tags: webkit2_40
 
     steps:
       - name: Checkout
@@ -61,7 +68,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
+            ${{ matrix.webkit_pkg }} \
             build-essential \
             pkg-config
 
@@ -84,7 +91,13 @@ jobs:
         run: npm ci
 
       - name: Wails build
-        run: wails build -platform ${{ matrix.platform }}
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.build_tags }}" ]; then
+            wails build -platform ${{ matrix.platform }} -tags ${{ matrix.build_tags }}
+          else
+            wails build -platform ${{ matrix.platform }}
+          fi
 
       - name: Package Windows artifacts
         if: runner.os == 'Windows'
@@ -127,7 +140,7 @@ jobs:
             exit 1
           fi
           chmod +x "$BIN"
-          cp "$BIN" "dist/windsurf-tools-wails-linux-amd64"
+          cp "$BIN" "dist/${{ matrix.artifact_name }}"
           tar -C build/bin -czf "dist/${{ matrix.artifact_name }}.tar.gz" windsurf-tools-wails
           ls -lh dist
 
@@ -171,6 +184,8 @@ jobs:
             dist/WindsurfTools-apple-silicon-arm64.dmg
             dist/windsurf-tools-wails-linux-amd64
             dist/windsurf-tools-wails-linux-amd64.tar.gz
+            dist/windsurf-tools-wails-linux-amd64-legacy
+            dist/windsurf-tools-wails-linux-amd64-legacy.tar.gz
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: false
           generate_release_notes: true
