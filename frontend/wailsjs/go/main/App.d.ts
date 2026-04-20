@@ -10,15 +10,11 @@ export function ApplyAllPerformanceFixes():Promise<Record<string, string>>;
 
 export function ApplyPerformanceFix(arg1:Array<string>):Promise<Record<string, string>>;
 
-export function ApplyToolbarLayout(arg1:boolean):Promise<void>;
-
 export function CleanupAllSafe():Promise<Array<main.CleanupResult>>;
 
 export function CleanupStartupCache():Promise<Array<main.CleanupResult>>;
 
 export function CleanupWindsurf(arg1:Array<string>):Promise<Array<main.CleanupResult>>;
-
-export function ControlBackgroundService(arg1:string):Promise<void>;
 
 export function DeleteAccount(arg1:string):Promise<void>;
 
@@ -36,11 +32,7 @@ export function GetAccount(arg1:string):Promise<models.Account>;
 
 export function GetAllAccounts():Promise<Array<models.Account>>;
 
-export function GetBackgroundServiceStatus():Promise<main.BackgroundServiceStatus>;
-
 export function GetCaptureDir():Promise<string>;
-
-export function GetDesktopRuntimeStatus():Promise<main.DesktopRuntimeStatus>;
 
 export function GetMitmCAPath():Promise<string>;
 
@@ -83,8 +75,6 @@ export function RefreshAccountQuota(arg1:string):Promise<void>;
 export function RefreshAllQuotas():Promise<Record<string, string>>;
 
 export function RefreshAllTokens():Promise<Record<string, string>>;
-
-export function RestoreMainWindowLayout():Promise<void>;
 
 export function SetSilentFromFlag(arg1:boolean):Promise<void>;
 

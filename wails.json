@@ -9,5 +9,11 @@
   "author": {
     "name": "shaoyu521",
     "email": "shaoyu521@github.com"
+  },
+  "info": {
+    "productName": "Windsurf Tools",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2025 shaoyu521",
+    "comments": "Windsurf 号池 · MITM 代理 · 切号工具"
   }
 }

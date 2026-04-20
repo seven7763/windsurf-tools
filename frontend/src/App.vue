@@ -3,7 +3,6 @@ import {
   type Component,
   computed,
   defineAsyncComponent,
-  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -14,7 +13,6 @@ import Sidebar from "./components/layout/Sidebar.vue";
 import AppFooter from "./components/layout/AppFooter.vue";
 import IConfirm from "./components/ios/IConfirm.vue";
 import IToast from "./components/ios/IToast.vue";
-import ToolbarStrip from "./components/ToolbarStrip.vue";
 import PageLoadingSkeleton from "./components/common/PageLoadingSkeleton.vue";
 import { useAccountStore } from "./stores/useAccountStore";
 import { useSettingsStore } from "./stores/useSettingsStore";
@@ -22,19 +20,14 @@ import { useMitmStatusStore } from "./stores/useMitmStatusStore";
 import { useMainViewStore } from "./stores/useMainViewStore";
 import {
   DEFAULT_MAIN_VIEW,
-  PURE_MITM_ONLY,
   type ShellViewTab,
 } from "./utils/appMode";
-import { APIInfo } from "./api/wails";
-import { EventsOn, WindowShow } from "../wailsjs/runtime/runtime";
 
 const mainView = useMainViewStore();
 const settings = useSettingsStore();
 const mitmStore = useMitmStatusStore();
-const toolbarMode = ref(false);
 const shellReady = ref(false);
 const mountedViews = ref<ShellViewTab[]>([]);
-let unToolbarEvent: (() => void) | undefined;
 let unVisibilityRefresh: (() => void) | undefined;
 let viewPreloadTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -62,7 +55,7 @@ const viewRegistry = {
   },
   Usage: {
     component: defineAsyncComponent(viewLoaders.Usage),
-    skeleton: "accounts",
+    skeleton: "usage",
   },
   Relay: {
     component: defineAsyncComponent(viewLoaders.Relay),
@@ -134,19 +127,7 @@ watch(
     }
     ensureViewMounted(resolved);
     void preloadView(resolved);
-    if (!toolbarMode.value) {
-      scheduleBackgroundViewPreload(resolved);
-    }
-  },
-  { immediate: true },
-);
-
-watch(
-  () => settings.settings?.show_desktop_toolbar,
-  (enabled) => {
-    if (typeof enabled === "boolean") {
-      toolbarMode.value = enabled;
-    }
+    scheduleBackgroundViewPreload(resolved);
   },
   { immediate: true },
 );
@@ -154,40 +135,18 @@ watch(
 onMounted(async () => {
   const accounts = useAccountStore();
   await settings.fetchSettings();
-  if (PURE_MITM_ONLY) {
-    await settings.ensurePureMitm();
-    if (!(mainView.activeTab in viewRegistry)) {
-      mainView.activeTab = DEFAULT_MAIN_VIEW;
-    }
+  if (!(mainView.activeTab in viewRegistry)) {
+    mainView.activeTab = DEFAULT_MAIN_VIEW;
   }
-  toolbarMode.value = settings.settings?.show_desktop_toolbar === true;
-
-  unToolbarEvent = EventsOn("toolbar:set", (...data: unknown[]) => {
-    toolbarMode.value = Boolean(data[0]);
-  });
-
-  // 必须先切 toolbarMode 再 Resize，否则小窗里仍是完整主界面 DOM（错乱）
-  if (settings.settings?.show_desktop_toolbar) {
-    toolbarMode.value = true;
-    await nextTick();
-    await APIInfo.applyToolbarLayout(true);
-    // 静默启动时 Go 会先 WindowHide；小窗就绪后必须再 Show，否则只见托盘不见小条
-    WindowShow();
-  }
-
   shellReady.value = true;
   const currentTab = resolveShellViewTab(mainView.activeTab);
   ensureViewMounted(currentTab);
   void preloadView(currentTab);
-  if (!toolbarMode.value) {
-    scheduleBackgroundViewPreload(currentTab);
-  }
+  scheduleBackgroundViewPreload(currentTab);
   mitmStore.startPolling();
-  if (!toolbarMode.value) {
-    void accounts.ensureAccountsLoaded().catch((error) => {
-      console.error("App bootstrap accounts fetch failed:", error);
-    });
-  }
+  void accounts.ensureAccountsLoaded().catch((error) => {
+    console.error("App bootstrap accounts fetch failed:", error);
+  });
 
   // 从后台切回前台时仅刷新 MITM 相关数据，避免旧 Auth 路径带来的额外抖动
   let lastFocusRefresh = 0;
@@ -203,9 +162,6 @@ onMounted(async () => {
       return;
     }
     lastFocusRefresh = now;
-    if (toolbarMode.value) {
-      return;
-    }
     void accounts.fetchAccounts();
     void mitmStore.fetchStatus();
   };
@@ -216,7 +172,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   mitmStore.stopPolling();
-  unToolbarEvent?.();
   unVisibilityRefresh?.();
   if (viewPreloadTimer) {
     clearTimeout(viewPreloadTimer);
@@ -228,22 +183,13 @@ onUnmounted(() => {
 <template>
   <div
     class="flex flex-col h-full text-ios-text dark:text-ios-textDark overflow-hidden antialiased app-root"
-    :class="toolbarMode ? 'bg-transparent' : ''"
   >
     <template v-if="!shellReady">
       <div class="flex-1 min-h-0 p-4">
         <div
-          class="h-full rounded-[28px] backdrop-blur-2xl"
-          :class="
-            toolbarMode
-              ? 'border border-transparent bg-transparent shadow-none'
-              : 'border border-black/[0.05] bg-white/72 dark:border-white/[0.08] dark:bg-[#1C1C1E]/82'
-          "
+          class="h-full rounded-[28px] backdrop-blur-2xl border border-black/[0.05] bg-white/72 dark:border-white/[0.08] dark:bg-[#1C1C1E]/82"
         />
       </div>
-    </template>
-    <template v-else-if="toolbarMode">
-      <ToolbarStrip class="flex-1 min-h-0 flex flex-col justify-center" />
     </template>
     <template v-else>
       <Header />

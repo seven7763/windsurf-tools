@@ -32,15 +32,9 @@ export const APIInfo = {
   refreshAllTokens: AppHooks.RefreshAllTokens,
   refreshAllQuotas: AppHooks.RefreshAllQuotas,
   refreshAccountQuota: AppHooks.RefreshAccountQuota,
-  getBackgroundServiceStatus: AppHooks.GetBackgroundServiceStatus,
-  getDesktopRuntimeStatus: AppHooks.GetDesktopRuntimeStatus,
-  controlBackgroundService: AppHooks.ControlBackgroundService,
 
   getSettings: AppHooks.GetSettings,
   updateSettings: AppHooks.UpdateSettings,
-
-  applyToolbarLayout: AppHooks.ApplyToolbarLayout,
-  restoreMainWindowLayout: AppHooks.RestoreMainWindowLayout,
 
   // MITM（与 AppHooks.* 一一对应，便于统一从 APIInfo 调用）
   startMitmProxy: AppHooks.StartMitmProxy,

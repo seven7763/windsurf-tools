@@ -2,12 +2,17 @@ package services
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/net/http2"
 )
 
 func TestLiveForgeGetUserStatus(t *testing.T) {
@@ -149,15 +154,16 @@ func TestLiveForgeRelay(t *testing.T) {
 			continue
 		}
 		messages := []ChatMessage{{Role: "user", Content: "Say hi"}}
-		protoBody := BuildChatRequest(messages, tk, tj, "")
-		grpcPayload := WrapGRPCEnvelope(protoBody)
+		protoBody := BuildChatRequest(messages, tk, tj, "", nil)
+		// Connect 协议：无 envelope 格式（unary request body）
+		// 有 envelope 返回 invalid_argument，无 envelope 返回 resource_exhausted
 
 		testRelay := &OpenAIRelay{
 			proxy:    mitmProxy,
 			logFn:    func(msg string) {},
 			upstream: (&OpenAIRelay{proxyURL: ""}).buildUpstreamTransport(),
 		}
-		testResp, _, testErr := testRelay.sendGRPC(grpcPayload, tk, tj)
+		testResp, _, testErr := testRelay.sendGRPC(protoBody, tk, tj)
 		if testErr != nil {
 			t.Logf("  key=%s... sendGRPC失败: %v", truncKey(tk), testErr)
 			continue
@@ -185,7 +191,7 @@ func TestLiveForgeRelay(t *testing.T) {
 	}
 
 	if workingKey == "" {
-		t.Log("所有账号都返回 invalid_argument，可能是 API 请求格式变更")
+		t.Log("所有账号都返回 resource_exhausted/invalid_argument，额度可能全部耗尽")
 		t.Skip("无可用账号用于 relay 测试")
 	}
 
@@ -195,14 +201,13 @@ func TestLiveForgeRelay(t *testing.T) {
 	mitmProxy.updateJWT(apiKey, []byte(jwt))
 
 	messages := []ChatMessage{{Role: "user", Content: "Say hello in exactly 3 words."}}
-	protoBody := BuildChatRequest(messages, apiKey, jwt, "")
-	grpcPayload := WrapGRPCEnvelope(protoBody)
+	protoBody := BuildChatRequest(messages, apiKey, jwt, "", nil)
 
 	resp, kind, sendErr := (&OpenAIRelay{
 		proxy:    mitmProxy,
 		logFn:    func(msg string) { t.Log(msg) },
 		upstream: (&OpenAIRelay{proxyURL: ""}).buildUpstreamTransport(),
-	}).sendGRPC(grpcPayload, apiKey, jwt)
+	}).sendGRPC(protoBody, apiKey, jwt)
 	if sendErr != nil {
 		t.Fatalf("sendGRPC 失败 (kind=%s): %v", kind, sendErr)
 	}
@@ -344,4 +349,143 @@ func detectResponseFormat(body []byte) string {
 		}
 	}
 	return "raw-protobuf"
+}
+
+// TestLiveDiagRelayProtoFormat 诊断 Relay 请求格式问题
+// 逐步排查: dump proto 字段树 → 发送请求 → 捕获完整错误 → 尝试不同版本号
+func TestLiveDiagRelayProtoFormat(t *testing.T) {
+	apiKey := os.Getenv("WS_LIVE_API_KEY")
+	if apiKey == "" {
+		// 尝试从 accounts.json 取第一个
+		keys := loadTestAccountKeys(t, 1)
+		if len(keys) == 0 {
+			t.Skip("WS_LIVE_API_KEY not set and no accounts.json")
+		}
+		apiKey = keys[0]
+	}
+
+	svc := NewWindsurfService("")
+	jwt, err := svc.GetJWTByAPIKey(apiKey)
+	if err != nil {
+		t.Fatalf("GetJWTByAPIKey: %v", err)
+	}
+	t.Logf("JWT 获取成功: %d chars, key=%s...", len(jwt), truncKey(apiKey))
+
+	// 构造 per-key 指纹
+	fp := &KeyFingerprint{
+		SessionID:  generateStableUUID(),
+		DeviceHash: generateStableHexHash(),
+	}
+
+	// ── Step 1: Dump BuildChatRequestWithModel 的字段树 ──
+	t.Log("=== Step 1: Dump BuildChatRequestWithModel 字段树 (含 F5/F8/F16/F27/F30/F31/F32) ===")
+	messages := []ChatMessage{{Role: "user", Content: "Say hi"}}
+	protoBody := BuildChatRequestWithModel(messages, apiKey, jwt, "", "", fp)
+	t.Logf("Proto body: %d bytes", len(protoBody))
+	t.Log(DumpProtoFieldTree(protoBody, 8))
+
+	// ── Step 2: Connect 协议（gzip 压缩 envelope — 匹配真实 IDE）──
+	t.Log("=== Step 2: Connect 协议 (gzip 压缩 envelope) ===")
+	gzipEnvelope := WrapGRPCEnvelopeGzip(protoBody)
+	sendAndDiagnose(t, gzipEnvelope, jwt, "connect-gzip-envelope", true, true)
+
+	// ── Step 3: Connect 协议（无压缩 envelope）──
+	t.Log("=== Step 3: Connect 协议 (无压缩 envelope) ===")
+	envelopePayload := WrapGRPCEnvelope(protoBody)
+	sendAndDiagnose(t, envelopePayload, jwt, "connect-plain-envelope", true, false)
+}
+
+func sendAndDiagnose(t *testing.T, payload []byte, jwt, label string, useConnect, compressed bool) {
+	t.Helper()
+	upIP := ResolveUpstreamIP()
+	connectURL := fmt.Sprintf("https://%s/exa.api_server_pb.ApiServerService/GetChatMessage", upIP)
+
+	req, err := http.NewRequest(http.MethodPost, connectURL, bytes.NewReader(payload))
+	if err != nil {
+		t.Errorf("[%s] create request: %v", label, err)
+		return
+	}
+	req.Host = GRPCUpstreamHost
+	if useConnect {
+		req.Header.Set("Content-Type", "application/connect+proto")
+		req.Header.Set("Connect-Protocol-Version", "1")
+		req.Header.Set("User-Agent", "connect-go/1.18.1 (go1.26.1)")
+		req.Header.Set("Accept-Encoding", "identity")
+		req.Header.Set("Authorization", "Bearer "+jwt)
+		if compressed {
+			req.Header.Set("Connect-Content-Encoding", "gzip")
+		}
+	} else {
+		req.Header.Set("Content-Type", "application/grpc")
+		req.Header.Set("te", "trailers")
+		req.Header.Set("User-Agent", "connect-go/1.18.1 (go1.26.1)")
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         GRPCUpstreamHost,
+			NextProtos:         []string{"h2"},
+		},
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
+	http2.ConfigureTransport(transport)
+
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Errorf("[%s] RoundTrip: %v", label, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	grpcStatus := resp.Header.Get("grpc-status")
+	grpcMsg := resp.Header.Get("grpc-message")
+	ct := resp.Header.Get("Content-Type")
+
+	t.Logf("[%s] HTTP %d, proto=%s, ct=%s, grpc-status=%s, grpc-msg=%s, body=%d bytes",
+		label, resp.StatusCode, resp.Proto, ct, grpcStatus, grpcMsg, len(body))
+
+	// 如果有 Connect EOS trailer
+	if len(body) >= 5 {
+		envelopes := ExtractGRPCEnvelopes(body)
+		for i, env := range envelopes {
+			decoded, decErr := decodeStreamEnvelopePayload(env.Flags, env.Payload)
+			if decErr != nil {
+				t.Logf("[%s] env[%d] flags=0x%02x len=%d decode-err=%v", label, i, env.Flags, len(env.Payload), decErr)
+				continue
+			}
+			text := truncate(string(decoded), 500)
+			t.Logf("[%s] env[%d] flags=0x%02x decoded=%s", label, i, env.Flags, text)
+
+			// 如果是 JSON 错误
+			if strings.HasPrefix(strings.TrimSpace(text), "{") {
+				var errObj map[string]interface{}
+				if json.Unmarshal(decoded, &errObj) == nil {
+					t.Logf("[%s] Error JSON: %v", label, errObj)
+				}
+			}
+		}
+	}
+
+	// 非 envelope 格式的 body
+	if len(body) > 0 && (len(body) < 5 || (body[0] != 0x00 && body[0] != 0x01 && body[0] != 0x02)) {
+		t.Logf("[%s] Raw body: %s", label, truncate(string(body), 500))
+	}
+	if len(body) == 0 {
+		// gRPC streaming: body may be empty, check trailers
+		t.Logf("[%s] Empty body (gRPC streaming), checking trailers...", label)
+		resp.Body.Close()
+		trailerStatus := resp.Trailer.Get("grpc-status")
+		trailerMsg := resp.Trailer.Get("grpc-message")
+		t.Logf("[%s] Trailer grpc-status=%s grpc-message=%s", label, trailerStatus, trailerMsg)
+		if trailerStatus != "" && trailerStatus != "0" {
+			kind, detail := classifyUpstreamFailure(trailerStatus, trailerMsg, "")
+			t.Logf("[%s] Trailer error: kind=%s detail=%s", label, kind, detail)
+		} else {
+			t.Logf("[%s] gRPC stream accepted (no error in trailers)!", label)
+		}
+	}
 }

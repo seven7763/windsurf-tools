@@ -21,7 +21,7 @@ type anthropicRequest struct {
 	Messages  []anthropicMessage `json:"messages"`
 	MaxTokens int                `json:"max_tokens"`
 	Stream    bool               `json:"stream"`
-	System    string             `json:"system,omitempty"`    // 顶层 system prompt
+	System    string             `json:"system,omitempty"`     // 顶层 system prompt
 	SystemArr json.RawMessage    `json:"system_arr,omitempty"` // 数组形式 system（兜底）
 }
 
@@ -119,14 +119,20 @@ func (r *OpenAIRelay) handleAnthropicMessages(w http.ResponseWriter, req *http.R
 				anthReq.Model, len(anthReq.Messages), anthReq.Stream, truncKey(apiKey))
 		}
 
-		protoBody := BuildChatRequestWithModel(chatMessages, apiKey, jwtStr, "", anthReq.Model)
-		grpcPayload := WrapGRPCEnvelope(protoBody)
-
-		resp, kind, err := r.sendGRPC(grpcPayload, apiKey, jwtStr)
+		r.proxy.mu.RLock()
+		anthFP := r.proxy.keyFingerprint(apiKey)
+		r.proxy.mu.RUnlock()
+		protoBody := BuildChatRequestWithModel(chatMessages, apiKey, jwtStr, "", anthReq.Model, anthFP)
+		// Connect 协议：直接发送 protobuf body（无 envelope）
+		resp, kind, err := r.sendGRPC(protoBody, apiKey, jwtStr)
 		if err != nil {
 			if kind == upstreamFailureQuota {
 				r.proxy.markRuntimeExhaustedAndRotate(apiKey, "anthropic-quota")
 				continue
+			}
+			if kind == upstreamFailureGlobalRateLimit {
+				writeAnthropicError(w, 429, "rate_limit_error", err.Error())
+				return
 			}
 			if kind == upstreamFailureRateLimit {
 				if rotatedKey := r.proxy.markRateLimitedAndRotate(apiKey, "anthropic-rate="+err.Error()); rotatedKey != "" {
@@ -336,11 +342,11 @@ func (r *OpenAIRelay) blockingAnthropicResponse(w http.ResponseWriter, resp *htt
 	completionTokens := estimateTokens(content)
 
 	reply := map[string]interface{}{
-		"id":           msgID,
-		"type":         "message",
-		"role":         "assistant",
-		"model":        model,
-		"stop_reason":  "end_turn",
+		"id":            msgID,
+		"type":          "message",
+		"role":          "assistant",
+		"model":         model,
+		"stop_reason":   "end_turn",
 		"stop_sequence": nil,
 		"content": []map[string]string{
 			{"type": "text", "text": content},

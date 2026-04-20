@@ -14,10 +14,6 @@ export function ApplyPerformanceFix(arg1) {
   return window['go']['main']['App']['ApplyPerformanceFix'](arg1);
 }
 
-export function ApplyToolbarLayout(arg1) {
-  return window['go']['main']['App']['ApplyToolbarLayout'](arg1);
-}
-
 export function CleanupAllSafe() {
   return window['go']['main']['App']['CleanupAllSafe']();
 }
@@ -28,10 +24,6 @@ export function CleanupStartupCache() {
 
 export function CleanupWindsurf(arg1) {
   return window['go']['main']['App']['CleanupWindsurf'](arg1);
-}
-
-export function ControlBackgroundService(arg1) {
-  return window['go']['main']['App']['ControlBackgroundService'](arg1);
 }
 
 export function DeleteAccount(arg1) {
@@ -66,16 +58,8 @@ export function GetAllAccounts() {
   return window['go']['main']['App']['GetAllAccounts']();
 }
 
-export function GetBackgroundServiceStatus() {
-  return window['go']['main']['App']['GetBackgroundServiceStatus']();
-}
-
 export function GetCaptureDir() {
   return window['go']['main']['App']['GetCaptureDir']();
-}
-
-export function GetDesktopRuntimeStatus() {
-  return window['go']['main']['App']['GetDesktopRuntimeStatus']();
 }
 
 export function GetMitmCAPath() {
@@ -160,10 +144,6 @@ export function RefreshAllQuotas() {
 
 export function RefreshAllTokens() {
   return window['go']['main']['App']['RefreshAllTokens']();
-}
-
-export function RestoreMainWindowLayout() {
-  return window['go']['main']['App']['RestoreMainWindowLayout']();
 }
 
 export function SetSilentFromFlag(arg1) {

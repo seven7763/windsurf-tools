@@ -1,35 +1,20 @@
 # Windsurf Tools 🏄‍♂️
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/shaoyu521/windsurf-Tools)](https://github.com/shaoyu521/windsurf-Tools/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-blue)](#运行环境)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-blue)](#运行环境--prerequisites)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Built with Wails](https://img.shields.io/badge/Built%20with-Wails%20v2-red)](https://wails.io/)
 
-**Windsurf Tools** is your ultimate desktop companion built using [Wails v2](https://wails.io/) (Go + Vue 3). It utilizes a seamless **Pure MITM Workflow** to automatically manage your Windsurf IDE accounts, execute invisible proxy rotation, synchronize quotas, and expose a blazing-fast local **OpenAI Relay API**!
+> **Windsurf IDE 号池 + 纯 MITM 代理一体化工具**
+> Seamless MITM proxy for Windsurf IDE — account pool rotation, billing identity rewrite, quota sync, and a local OpenAI-compatible relay.
 
-> **EN:** *The ultimate Windsurf IDE companion: Seamless MITM proxy rotation, multi-account pool management, automated quota sync, and a built-in OpenAI compatible Relay server.*
+基于 [Wails v2](https://wails.io/) (Go + Vue 3) 的桌面工具，为 Windsurf / Codeium IDE 提供：
 
-**Windsurf Tools** 是一款基于 [Wails v2](https://wails.io/) (Go + Vue 3) 开发的生产力增强应用。当前版本产品形态深度聚焦于 **纯 MITM 工作流**，旨在为开发者提供全自动的平台代理打通、号池动态切换、用量实时刷新以及兼容全行业的 **本地 OpenAI Relay 中转服务**。告别繁琐的手动编辑与封号焦虑！
-
-> **ZH:** *Windsurf 无感切号与号池管理神器：纯 MITM 无缝切号、细粒度多账号额度同步、以及本地原生 OpenAI 兼容接口。*
-
-## 💬 交流群
-
-进不去群请加微信：**LinMuYang-i9**
-
-| 1群 | 2群 | 3群 |
-|-----|-----|-----|
-| ![1群](qr.jpg) | ![2群](qr2.jpg) | ![3群](qr3.jpg) |
-
-
----
-
-## 💬 交流群 | Community
-
-进不去群请加微信：**LinMuYang-i9**
-
-| 1群 | 2群 | 3群 |
-|:---:|:---:|:---:|
-| ![1群](qr.jpg) | ![2群](qr2.jpg) | ![3群](qr3.jpg) |
+- 🕵️ **纯 MITM 代理** — 劫持 `server.codeium.com` / `server.self-serve.windsurf.com`，在 protobuf 层替换 `sk-ws-` key、JWT、**F20 UserID / F32 TeamID 计费字段**，让上游按号池账号扣费而不是登录账号
+- 🎯 **号池动态切换** — Free / Trial / Pro / Max 多套餐统一管理，按会话粘性分配 pool key，避免 Cascade session 失效
+- 📊 **实时用量 & 诊断** — 统计 Windsurf / OpenAI 方向 token 流水，聚合美金成本，带完整请求审计
+- � **本地 OpenAI Relay** — SSE 流式输出，兼容 `OpenAI SDK` / `LobeChat` / `ChatGPT-Next-Web` / `Cursor`，自带健康检测和故障倒换
+- �️ **清道夫** — 一键清理 Cascade 对话残留和渲染缓存
+- 🔐 **单密码特权操作** — macOS 合并 CA 信任 / hosts 写入 / 端口 443 绑定为一次 osascript 弹窗
 
 ---
 
@@ -83,7 +68,7 @@
 
 ## 📦 下载发布包 | Download Releases
 
-每次推送 `v*` 标签后，GitHub Actions 会自动构建并发布以下产物到 [Releases](https://github.com/shaoyu521/windsurf-Tools/releases)：
+每次推送 `v*` 标签后，GitHub Actions 会自动构建并发布以下产物到 [Releases](https://github.com/seven7763/windsurf-tools/releases)：
 
 | 文件 | 平台 | 说明 |
 |------|------|------|
@@ -116,8 +101,8 @@
 - [Wails CLI v2](https://wails.io/docs/gettingstarted/installation)
 
 ```bash
-git clone https://github.com/shaoyu521/windsurf-Tools.git
-cd windsurf-Tools
+git clone https://github.com/seven7763/windsurf-tools.git
+cd windsurf-tools
 
 # 安装前端依赖
 cd frontend
@@ -140,10 +125,27 @@ wails build
 
 ## 📁 隐私与数据目录 | Privacy
 
-应用核心配置目录定位在标准用户持久化节点下：
-- Windows: `%APPDATA%\WindsurfTools\`
+应用核心配置目录：
+- **Windows**：`%APPDATA%\WindsurfTools\`
+- **macOS**：`~/.windsurf-tools/`（含 CA 证书 `ca/ca.pem`）
 
-内部保存 `accounts.json`、`settings.json` 及全套 MITM 证书。**请注意切勿向公共社区随意提交这部分文件以保护您的隐私泄漏！** 详见 [SECURITY.md](SECURITY.md)。
+内部保存 `accounts.json`、`settings.json` 及全套 MITM 证书。**切勿向公共仓库提交这些文件。** 详见 [SECURITY.md](SECURITY.md)。
+
+---
+
+## 🔧 最近修复 | Recent Fixes
+
+- **F20/F32 计费字段替换** — 修复原先只替换 api_key+JWT 不替换 UserID/TeamID 导致上游 auth 用号池账号但 billing 仍记登录用户的严重 Bug（`proxy_identity.go`）
+- **macOS 26+ CA 信任** — 改用 Terminal.app 交互式 sudo 走 `security add-trusted-cert`，解决 osascript 无法完整授权的问题
+- **单密码批量特权** — `hosts` / DNS flush / 端口 443 绑定合并进一次弹窗，不再多次输入密码
+- **Clash TUN 模式兼容** — 自动维护 `Merge.yaml` hosts + DIRECT 规则，避免 TUN 接管后绕过 `/etc/hosts`
+- **会话粘性 pool key** — 同一 Cascade conversation 稳定复用同一 pool key，避免 `Invalid Cascade session` 错误
+
+---
+
+## ⚠️ 免责声明 | Disclaimer
+
+本项目仅供学习研究 Windsurf / Codeium 协议使用。使用本工具进行商业规避、批量滥用或违反 Windsurf/Codeium 服务条款的行为，相关责任由使用者自负。作者不鼓励、不支持任何违反目标服务 ToS 的用法。
 
 ---
 

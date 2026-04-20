@@ -1,117 +1,12 @@
-﻿package main
+package main
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 	"windsurf-tools-wails/backend/models"
 	"windsurf-tools-wails/backend/services"
 	"windsurf-tools-wails/backend/store"
 )
-
-func setupTestAuthEnv(t *testing.T) string {
-	t.Helper()
-	tmp := t.TempDir()
-	origAppData := os.Getenv("APPDATA")
-	origHome := os.Getenv("HOME")
-	origXDGConfigHome := os.Getenv("XDG_CONFIG_HOME")
-	if err := os.Setenv("APPDATA", tmp); err != nil {
-		t.Fatalf("Setenv(APPDATA) error = %v", err)
-	}
-	if err := os.Setenv("HOME", tmp); err != nil {
-		t.Fatalf("Setenv(HOME) error = %v", err)
-	}
-	if err := os.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, ".config")); err != nil {
-		t.Fatalf("Setenv(XDG_CONFIG_HOME) error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Setenv("APPDATA", origAppData)
-		_ = os.Setenv("HOME", origHome)
-		_ = os.Setenv("XDG_CONFIG_HOME", origXDGConfigHome)
-	})
-	return tmp
-}
-
-func readWindsurfAuthForTest(t *testing.T, switchSvc *services.SwitchService) services.WindsurfAuthJSON {
-	t.Helper()
-	authPath, err := switchSvc.GetWindsurfAuthPath()
-	if err != nil {
-		t.Fatalf("GetWindsurfAuthPath() error = %v", err)
-	}
-	raw, err := os.ReadFile(authPath)
-	if err != nil {
-		t.Fatalf("ReadFile(%s) error = %v", authPath, err)
-	}
-	var auth services.WindsurfAuthJSON
-	if err := json.Unmarshal(raw, &auth); err != nil {
-		t.Fatalf("Unmarshal(auth) error = %v", err)
-	}
-	return auth
-}
-
-func waitForWindsurfAuthForTest(t *testing.T, switchSvc *services.SwitchService, wantEmail string) services.WindsurfAuthJSON {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		authPath, err := switchSvc.GetWindsurfAuthPath()
-		if err == nil {
-			if raw, readErr := os.ReadFile(authPath); readErr == nil {
-				var auth services.WindsurfAuthJSON
-				if jsonErr := json.Unmarshal(raw, &auth); jsonErr == nil && auth.Email == wantEmail {
-					return auth
-				}
-			}
-		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	return readWindsurfAuthForTest(t, switchSvc)
-}
-
-func TestSyncMitmLocalAuthWritesWindsurfAuthFile(t *testing.T) {
-	tmp := setupTestAuthEnv(t)
-
-	s, err := store.NewStoreInPaths(filepath.Join(tmp, "WindsurfTools"))
-	if err != nil {
-		t.Fatalf("NewStoreInPaths() error = %v", err)
-	}
-	app := &App{
-		store:     s,
-		switchSvc: services.NewSwitchService(),
-	}
-
-	acc := models.Account{
-		ID:             "acc-1",
-		Email:          "user@example.com",
-		Token:          "token-123",
-		WindsurfAPIKey: "sk-ws-1",
-	}
-
-	if err := app.syncMitmLocalAuth(acc); err != nil {
-		t.Fatalf("syncMitmLocalAuth() error = %v", err)
-	}
-
-	auth := readWindsurfAuthForTest(t, app.switchSvc)
-	if auth.Token != "token-123" {
-		t.Fatalf("auth.Token = %q, want %q", auth.Token, "token-123")
-	}
-	if auth.Email != "user@example.com" {
-		t.Fatalf("auth.Email = %q, want %q", auth.Email, "user@example.com")
-	}
-}
-
-func TestSyncMitmLocalAuthRequiresToken(t *testing.T) {
-	app := &App{switchSvc: services.NewSwitchService()}
-
-	err := app.syncMitmLocalAuth(models.Account{Email: "user@example.com"})
-	if err == nil {
-		t.Fatal("syncMitmLocalAuth() error = nil, want token error")
-	}
-}
 
 func TestHandleMitmKeyAccessDeniedPersistsAccountStatusAndSkipsKey(t *testing.T) {
 	newTestApp := func(t *testing.T, firstDetail string) *App {
@@ -174,10 +69,8 @@ func TestHandleMitmKeyAccessDeniedPersistsAccountStatusAndSkipsKey(t *testing.T)
 	})
 }
 
-func TestRotateMitmToNextAvailableSyncsLocalAuth(t *testing.T) {
-	tmp := setupTestAuthEnv(t)
-
-	s, err := store.NewStoreInPaths(filepath.Join(tmp, "WindsurfTools"))
+func TestRotateMitmToNextAvailableSwitchesKey(t *testing.T) {
+	s, err := store.NewStoreInPaths(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewStoreInPaths() error = %v", err)
 	}
@@ -194,7 +87,6 @@ func TestRotateMitmToNextAvailableSyncsLocalAuth(t *testing.T) {
 
 	app := &App{
 		store:     s,
-		switchSvc: services.NewSwitchService(),
 		mitmProxy: services.NewMitmProxy(nil, nil, "", nil),
 	}
 	app.syncMitmPoolKeys()
@@ -212,16 +104,10 @@ func TestRotateMitmToNextAvailableSyncsLocalAuth(t *testing.T) {
 	if got := app.mitmProxy.CurrentAPIKey(); got != "sk-ws-b" {
 		t.Fatalf("CurrentAPIKey() = %q, want %q", got, "sk-ws-b")
 	}
-	auth := readWindsurfAuthForTest(t, app.switchSvc)
-	if auth.Email != "b@example.com" || auth.Token != "token-b" {
-		t.Fatalf("auth = %#v, want b@example.com/token-b", auth)
-	}
 }
 
-func TestHandleMitmCurrentKeyChangedSyncsLocalAuthAfterAutoRotate(t *testing.T) {
-	tmp := setupTestAuthEnv(t)
-
-	s, err := store.NewStoreInPaths(filepath.Join(tmp, "WindsurfTools"))
+func TestHandleMitmCurrentKeyChangedDoesNotSyncLocalAuth(t *testing.T) {
+	s, err := store.NewStoreInPaths(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewStoreInPaths() error = %v", err)
 	}
@@ -237,23 +123,15 @@ func TestHandleMitmCurrentKeyChangedSyncsLocalAuthAfterAutoRotate(t *testing.T) 
 
 	app := &App{
 		store:     s,
-		switchSvc: services.NewSwitchService(),
 		mitmProxy: services.NewMitmProxy(nil, nil, "", nil),
 	}
 	app.syncMitmPoolKeys()
 	if ok := app.mitmProxy.SwitchToKey("sk-ws-a"); !ok {
 		t.Fatal("SwitchToKey(sk-ws-a) = false, want true")
 	}
-	if err := app.syncMitmLocalAuth(accounts[0]); err != nil {
-		t.Fatalf("syncMitmLocalAuth(current) error = %v", err)
-	}
-
-	app.handleMitmCurrentKeyChanged("sk-ws-b", services.MitmCurrentKeyChangeReasonRateLimitRotate)
 
 	// ★ shouldSyncMitmLocalSessionOnKeyChange() = false
 	// MITM 按 conversation_id 路由，自动轮转不修改本地登录态
-	auth := readWindsurfAuthForTest(t, app.switchSvc)
-	if auth.Email != "a@example.com" || auth.Token != "token-a" {
-		t.Fatalf("auth should stay unchanged after auto-rotate: got %#v", auth)
-	}
+	app.handleMitmCurrentKeyChanged("sk-ws-b", services.MitmCurrentKeyChangeReasonRateLimitRotate)
+	// No assertion on local auth — the function just logs, no side effects on auth files
 }

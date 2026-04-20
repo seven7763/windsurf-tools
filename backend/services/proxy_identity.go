@@ -3,9 +3,12 @@ package services
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
+	mathr "math/rand"
 	"regexp"
 	"strings"
 	"windsurf-tools-wails/backend/utils"
@@ -311,12 +314,121 @@ func recompressBody(raw []byte, etype envelopeType) []byte {
 
 // ── Metadata field replacement ──
 
+// ── Device fingerprint randomization ──
+// Windsurf metadata (F1) contains device-identifying fields:
+//   F5:  OS info JSON  {"Os":"windows","Arch":"amd64",...}
+//   F8:  CPU info JSON {"NumSockets":1,"NumCores":8,...,"Memory":...}
+//   F27: 64-char hex hash (machine fingerprint)
+//   F32: UUID (installation/session ID)
+// To prevent device-level rate limiting, we randomize these per-key.
+
+// randomHexHash generates a random 64-char hex string.
+func randomHexHash() []byte {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return []byte(hex.EncodeToString(b))
+}
+
+// randomUUID generates a random UUID v4 string.
+func randomUUID() []byte {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	return []byte(fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]))
+}
+
+// generateStableUUID returns a UUID v4 string (for per-key stable session ID).
+func generateStableUUID() string {
+	return string(randomUUID())
+}
+
+// generateStableHexHash returns a 64-char hex hash string (for per-key stable device fingerprint).
+func generateStableHexHash() string {
+	return string(randomHexHash())
+}
+
+// randomizeOSJSON slightly varies the OS info JSON to create a different fingerprint.
+func randomizeOSJSON(original []byte) []byte {
+	s := string(original)
+	// Vary the Build number slightly
+	if strings.Contains(s, "Build") {
+		buildNum := 19041 + mathr.Intn(8000) // Windows build range
+		s = regexp.MustCompile(`"Build":"\d+"`).ReplaceAllString(s, fmt.Sprintf(`"Build":"%d"`, buildNum))
+		return []byte(s)
+	}
+	return original
+}
+
+// randomizeCPUJSON slightly varies the CPU info JSON.
+func randomizeCPUJSON(original []byte) []byte {
+	s := string(original)
+	// Vary memory slightly (±10%)
+	if strings.Contains(s, "Memory") {
+		re := regexp.MustCompile(`"Memory":(\d+)`)
+		matches := re.FindStringSubmatch(s)
+		if len(matches) > 1 {
+			var mem int64
+			fmt.Sscanf(matches[1], "%d", &mem)
+			variation := mem / 20 // ±5%
+			newMem := mem - variation + int64(mathr.Intn(int(variation*2+1)))
+			s = re.ReplaceAllString(s, fmt.Sprintf(`"Memory":%d`, newMem))
+			return []byte(s)
+		}
+	}
+	return original
+}
+
+// isDeviceFingerprintField returns true if this metadata field is a device identifier.
+func isDeviceFingerprintField(f protoFieldRaw) bool {
+	if f.WireType != 2 {
+		return false
+	}
+	switch f.FieldNum {
+	case 27: // 64-char hex hash
+		return len(f.Bytes) == 64 && isHexString(f.Bytes)
+	case 32: // UUID
+		return len(f.Bytes) == 36 && bytes.Count(f.Bytes, []byte("-")) == 4
+	}
+	return false
+}
+
+func isHexString(b []byte) bool {
+	for _, c := range b {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// KeyFingerprint holds per-key stable device/session fingerprint data.
+// Used to replace F31/F32 in protobuf metadata so each key has a unique session.
+type KeyFingerprint struct {
+	SessionID  string // F32: stable UUID per key
+	DeviceHash string // F31/F27: stable hex hash per key
+}
+
 // replaceMetadataFields parses the F1 metadata sub-message (~2500B) and replaces
-// the api_key (any field starting with sk-ws-) and JWT (F21 starting with eyJ).
-func replaceMetadataFields(metaBytes []byte, newKey []byte, newJWT []byte) ([]byte, bool) {
+// the api_key (any field starting with sk-ws-), JWT (F21 starting with eyJ),
+// and device fingerprint fields (F5/F8/F27/F31/F32) for anti-device-tracking.
+// When fp is non-nil, F32 and F31 are replaced with per-key stable values.
+func replaceMetadataFields(metaBytes []byte, newKey []byte, newJWT []byte, randomizeFingerprint bool, fp *KeyFingerprint) ([]byte, bool) {
 	fields := parseProtobuf(metaBytes)
 	if len(fields) == 0 {
 		return metaBytes, false
+	}
+
+	// ★ 从号池 JWT 解出 team_id / user_id，用于替换 F32 / F20
+	// IDE 原始请求 body 里的 F20=UserID、F32=TeamID 属于 **计费字段**，
+	// 只换 JWT 不换这两个 → 上游认证通过但账单仍记在原用户的 team 上
+	// （Opus 等 premium 模型按 team_id 扣费时尤其明显）。
+	var poolTeamID, poolUserID string
+	if len(newJWT) > 0 {
+		if claims, err := (&WindsurfService{}).DecodeJWTClaims(string(newJWT)); err == nil && claims != nil {
+			poolTeamID = claims.TeamID
+			poolUserID = claims.UserID
+		}
 	}
 
 	modified := false
@@ -328,15 +440,89 @@ func replaceMetadataFields(metaBytes []byte, newKey []byte, newJWT []byte) ([]by
 				modified = true
 				continue
 			}
+			// ★ F3 = devin-session-token$<JWT>（IDE 登录后真实用这个做 auth）
+			// 必须替换为号池 sk-ws-* key，否则 F3 仍是用户自己的会话 token，
+			// 上游会按 F3 里的 session → 原用户账号去计费 Opus 等 premium 模型。
+			if f.FieldNum == 3 && bytes.HasPrefix(f.Bytes, []byte("devin-session-token$")) {
+				newFields = append(newFields, protoFieldRaw{FieldNum: 3, WireType: 2, Bytes: newKey})
+				modified = true
+				continue
+			}
 			if f.FieldNum == 21 && bytes.HasPrefix(f.Bytes, []byte("eyJ")) {
 				if len(newJWT) > 0 {
 					newFields = append(newFields, protoFieldRaw{FieldNum: 21, WireType: 2, Bytes: newJWT})
 					modified = true
 					continue
 				}
-				// strip JWT if no replacement available
 				modified = true
 				continue
+			}
+			// ★ F20: UserID（如 "user-XXX"）— 计费主体之一
+			// IDE 原始请求里的 F20 是当前登录用户的 ID，必须换成号池用户的 ID；
+			// 否则上游虽然认证为号池账号，但 billing 记到原用户头上。
+			if f.FieldNum == 20 && len(f.Bytes) > 0 && bytes.HasPrefix(f.Bytes, []byte("user-")) {
+				if poolUserID != "" {
+					newFields = append(newFields, protoFieldRaw{FieldNum: 20, WireType: 2, Bytes: []byte(poolUserID)})
+					modified = true
+					continue
+				}
+			}
+			// ★ F32: TeamID（如 "devin-team$account-XXX"）— 计费主体
+			// chat_proto.go 文档确认 F32 = team_id。IDE 原始请求中此字段是用户自己的 team，
+			// 必须换成号池 key 对应的 team，否则用户团队被扣费。
+			// 注意：F32 同时在 Cascade 会话中参与 session 粘性校验；当我们为同一 convID
+			// 保持相同 pool key（见 pickPoolKeyForSession）时，F32 也会稳定，不会触发
+			// "Invalid Cascade session"。
+			if f.FieldNum == 32 && len(f.Bytes) > 0 {
+				// 只在目标字段看起来是 team/account 标识时替换（避免误伤）
+				if bytes.HasPrefix(f.Bytes, []byte("devin-team$")) || bytes.HasPrefix(f.Bytes, []byte("account-")) {
+					if poolTeamID != "" {
+						newFields = append(newFields, protoFieldRaw{FieldNum: 32, WireType: 2, Bytes: []byte(poolTeamID)})
+						modified = true
+						continue
+					}
+				}
+			}
+
+			// ★ F31: 设备指纹 hex hash (长 hex 字符串) — 每个 key 用稳定 hash
+			if f.FieldNum == 31 && len(f.Bytes) > 60 && isHexString(f.Bytes) {
+				if fp != nil && fp.DeviceHash != "" {
+					// 用 per-key hash 填充到原长度
+					newHash := padHexHash(fp.DeviceHash, len(f.Bytes))
+					newFields = append(newFields, protoFieldRaw{FieldNum: 31, WireType: 2, Bytes: []byte(newHash)})
+					modified = true
+					continue
+				} else if randomizeFingerprint {
+					newHash := padHexHash(string(randomHexHash()), len(f.Bytes))
+					newFields = append(newFields, protoFieldRaw{FieldNum: 31, WireType: 2, Bytes: []byte(newHash)})
+					modified = true
+					continue
+				}
+			}
+			// ★ F27: 64-char hex hash (旧版设备指纹) — 同样 per-key 稳定
+			if f.FieldNum == 27 && len(f.Bytes) == 64 && isHexString(f.Bytes) {
+				if fp != nil && fp.DeviceHash != "" {
+					newFields = append(newFields, protoFieldRaw{FieldNum: 27, WireType: 2, Bytes: []byte(fp.DeviceHash)})
+					modified = true
+					continue
+				} else if randomizeFingerprint {
+					newFields = append(newFields, protoFieldRaw{FieldNum: 27, WireType: 2, Bytes: randomHexHash()})
+					modified = true
+					continue
+				}
+			}
+			// ★ Device fingerprint randomization (仅对 Trial/Free 号生效)
+			if randomizeFingerprint {
+				if f.FieldNum == 5 && len(f.Bytes) > 10 && f.Bytes[0] == '{' {
+					newFields = append(newFields, protoFieldRaw{FieldNum: 5, WireType: 2, Bytes: randomizeOSJSON(f.Bytes)})
+					modified = true
+					continue
+				}
+				if f.FieldNum == 8 && len(f.Bytes) > 10 && f.Bytes[0] == '{' {
+					newFields = append(newFields, protoFieldRaw{FieldNum: 8, WireType: 2, Bytes: randomizeCPUJSON(f.Bytes)})
+					modified = true
+					continue
+				}
 			}
 		}
 		newFields = append(newFields, f)
@@ -346,6 +532,17 @@ func replaceMetadataFields(metaBytes []byte, newKey []byte, newJWT []byte) ([]by
 		return serializeProtobuf(newFields), true
 	}
 	return metaBytes, false
+}
+
+// padHexHash repeats/truncates a 64-char hex hash to fill targetLen bytes.
+func padHexHash(hash string, targetLen int) string {
+	if len(hash) == 0 {
+		hash = string(randomHexHash())
+	}
+	for len(hash) < targetLen {
+		hash += hash
+	}
+	return hash[:targetLen]
 }
 
 // injectKeyIntoMetadata injects pool key when body has no api_key.
@@ -391,9 +588,18 @@ func injectKeyIntoMetadata(metaBytes []byte, newKey []byte, newJWT []byte) ([]by
 // ReplaceIdentity replaces api_key and JWT in protobuf body.
 // Safe approach: only touches F1 metadata sub-message, leaves all other fields intact.
 // Ported from interceptor_poc.py replace_identity().
-func ReplaceIdentity(data []byte, newKey []byte, newJWT []byte) ([]byte, bool) {
-	hasKey := bytes.Contains(data, apiKeyPrefix)
-
+// opts: [0]=randomizeFingerprint(bool), [1]=*KeyFingerprint
+func ReplaceIdentity(data []byte, newKey []byte, newJWT []byte, opts ...interface{}) ([]byte, bool) {
+	var randFP bool
+	var fp *KeyFingerprint
+	for _, o := range opts {
+		switch v := o.(type) {
+		case bool:
+			randFP = v
+		case *KeyFingerprint:
+			fp = v
+		}
+	}
 	// Scan top-level fields, locate F1 (metadata) byte ranges
 	type f1pos struct {
 		tagStart     int
@@ -432,9 +638,16 @@ func ReplaceIdentity(data []byte, newKey []byte, newJWT []byte) ([]byte, bool) {
 
 			if fn == 1 && int(length) > 20 {
 				content := data[contentStart:contentEnd]
-				if hasKey && (bytes.Contains(content, apiKeyPrefix) || bytes.Contains(content, []byte("eyJ"))) {
+				// ★ 只要 F1 metadata 内有 JWT(eyJ) 或 sk-ws 或 devin-session-token，就走 replace 路径。
+				// 原先要求顶层 hasKey（sk-ws-*）才走 replace，但 IDE 正常登录发的请求只带 JWT
+				// 和 devin-session-token，没有 sk-ws-*，导致走 inject 分支只补了 sk-ws，却没
+				// 替换 F20(UserID)/F32(TeamID) 等计费字段 → 账单仍记在登录用户头上。
+				hasAuthField := bytes.Contains(content, apiKeyPrefix) ||
+					bytes.Contains(content, []byte("eyJ")) ||
+					bytes.Contains(content, []byte("devin-session-token"))
+				if hasAuthField {
 					positions = append(positions, f1pos{tagStart, contentStart, contentEnd, "replace"})
-				} else if !hasKey {
+				} else {
 					// Try to detect metadata structure (F1=ide_name, F2=ide_version)
 					sub := parseProtobuf(content)
 					hasF1 := false
@@ -478,7 +691,7 @@ func ReplaceIdentity(data []byte, newKey []byte, newJWT []byte) ([]byte, bool) {
 		var newContent []byte
 		var changed bool
 		if p.mode == "replace" {
-			newContent, changed = replaceMetadataFields(oldContent, newKey, newJWT)
+			newContent, changed = replaceMetadataFields(oldContent, newKey, newJWT, randFP, fp)
 		} else {
 			newContent, changed = injectKeyIntoMetadata(oldContent, newKey, newJWT)
 		}
@@ -504,19 +717,28 @@ func ReplaceIdentity(data []byte, newKey []byte, newJWT []byte) ([]byte, bool) {
 }
 
 // ReplaceIdentityInBody handles the full flow: decompress → replace → recompress.
-func ReplaceIdentityInBody(body []byte, newKey []byte, newJWT []byte) ([]byte, bool) {
+// opts: bool (randomizeFingerprint), *KeyFingerprint (per-key session/device data)
+func ReplaceIdentityInBody(body []byte, newKey []byte, newJWT []byte, opts ...interface{}) ([]byte, bool) {
 	raw, etype := decompressBody(body)
-	newRaw, replaced := ReplaceIdentity(raw, newKey, newJWT)
+	newRaw, replaced := ReplaceIdentity(raw, newKey, newJWT, opts...)
 	if !replaced {
 		return body, false
 	}
 	return recompressBody(newRaw, etype), true
 }
 
-// StripConversationIDFromBody removes the top-level conversation_id (field 2)
-// and parent_message_id (field 3) from a chat request body while preserving the envelope format.
-// It uses a safe splice approach without parsing the entire body to avoid truncation.
-func StripConversationIDFromBody(body []byte) ([]byte, bool) {
+// StripFieldsFromBody removes specific top-level fields from a protobuf request body
+// while preserving the envelope format.
+func StripFieldsFromBody(body []byte, targetFields ...uint64) ([]byte, bool) {
+	if len(targetFields) == 0 {
+		return body, false
+	}
+
+	targets := make(map[uint64]bool)
+	for _, f := range targetFields {
+		targets[f] = true
+	}
+
 	raw, etype := decompressBody(body)
 
 	pos := 0
@@ -563,9 +785,7 @@ func StripConversationIDFromBody(body []byte) ([]byte, bool) {
 			fieldEnd = len(raw)
 		}
 
-		// Field 2: conversation_id (string)
-		// Field 3: parent_message_id (string)
-		if (fn == 2 || fn == 3) && wt == 2 {
+		if targets[fn] {
 			if lastKeepStart < tagStart {
 				chunks = append(chunks, chunk{lastKeepStart, tagStart, true})
 			}
@@ -595,6 +815,13 @@ func StripConversationIDFromBody(body []byte) ([]byte, bool) {
 	}
 
 	return recompressBody(newRaw, etype), true
+}
+
+// StripConversationIDFromBody removes the top-level conversation_id (field 2)
+// and parent_message_id (field 3) from a chat request body while preserving the envelope format.
+// It uses a safe splice approach without parsing the entire body to avoid truncation.
+func StripConversationIDFromBody(body []byte) ([]byte, bool) {
+	return StripFieldsFromBody(body, 2, 3)
 }
 
 // ExtractJWTFromBody extracts a JWT string from a protobuf response body.

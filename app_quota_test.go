@@ -3,7 +3,6 @@ package main
 import (
 	"testing"
 	"windsurf-tools-wails/backend/models"
-	"windsurf-tools-wails/backend/services"
 )
 
 func TestFindAccountIDForMITMAPIKey(t *testing.T) {
@@ -17,41 +16,6 @@ func TestFindAccountIDForMITMAPIKey(t *testing.T) {
 	}
 	if got := findAccountIDForMITMAPIKey(accounts, ""); got != "" {
 		t.Fatalf("findAccountIDForMITMAPIKey() with empty key = %q, want empty", got)
-	}
-}
-
-func TestResolveCurrentAccountIDPrefersMITMKey(t *testing.T) {
-	accounts := []models.Account{
-		{ID: "auth", Email: "auth@example.com", WindsurfAPIKey: "sk-ws-auth"},
-		{ID: "mitm", Email: "mitm@example.com", WindsurfAPIKey: "sk-ws-live"},
-	}
-	auth := &services.WindsurfAuthJSON{Email: "auth@example.com"}
-
-	got := resolveCurrentAccountID(accounts, auth, "sk-ws-live", func(auth *services.WindsurfAuthJSON) string {
-		if auth == nil {
-			return ""
-		}
-		return "auth"
-	})
-	if got != "mitm" {
-		t.Fatalf("resolveCurrentAccountID() = %q, want %q", got, "mitm")
-	}
-}
-
-func TestResolveCurrentAccountIDFallsBackToAuth(t *testing.T) {
-	accounts := []models.Account{
-		{ID: "auth", Email: "auth@example.com", WindsurfAPIKey: "sk-ws-auth"},
-	}
-	auth := &services.WindsurfAuthJSON{Email: "auth@example.com"}
-
-	got := resolveCurrentAccountID(accounts, auth, "", func(auth *services.WindsurfAuthJSON) string {
-		if auth == nil || auth.Email == "" {
-			return ""
-		}
-		return "auth"
-	})
-	if got != "auth" {
-		t.Fatalf("resolveCurrentAccountID() fallback = %q, want %q", got, "auth")
 	}
 }
 
@@ -93,15 +57,5 @@ func TestRunAccountRefreshBatchesPreservesOrder(t *testing.T) {
 		if outcome.label != accounts[i].ID {
 			t.Fatalf("runAccountRefreshBatches() label[%d] = %q, want %q", i, outcome.label, accounts[i].ID)
 		}
-	}
-}
-
-func TestAuthTokenOrEmpty(t *testing.T) {
-	if got := authTokenOrEmpty(nil); got != "" {
-		t.Fatalf("authTokenOrEmpty(nil) = %q, want empty", got)
-	}
-	auth := &services.WindsurfAuthJSON{Token: " token "}
-	if got := authTokenOrEmpty(auth); got != "token" {
-		t.Fatalf("authTokenOrEmpty(auth) = %q, want %q", got, "token")
 	}
 }

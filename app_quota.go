@@ -92,13 +92,6 @@ type accountRefreshOutcome struct {
 	updated bool
 }
 
-func authTokenOrEmpty(auth *services.WindsurfAuthJSON) string {
-	if auth == nil {
-		return ""
-	}
-	return strings.TrimSpace(auth.Token)
-}
-
 func runAccountRefreshBatches(accounts []models.Account, concurrency int, pause time.Duration, worker func(models.Account) accountRefreshOutcome) []accountRefreshOutcome {
 	if len(accounts) == 0 {
 		return nil
@@ -167,8 +160,7 @@ func (a *App) quotaHotPollLoop(ctx context.Context) {
 func (a *App) nextQuotaHotPollDelay() time.Duration {
 	settings := a.store.GetSettings()
 	base := time.Duration(clampQuotaHotPollSeconds(settings.QuotaHotPollSeconds)) * time.Second
-	auth, _ := a.switchSvc.GetCurrentAuth()
-	curID := a.findCurrentMonitoredAccountID(auth, settings.MitmOnly)
+	curID := a.findCurrentMonitoredAccountID()
 	if curID == "" {
 		return base
 	}
@@ -191,20 +183,9 @@ func (a *App) pollCurrentSessionQuotaAndMaybeSwitch() {
 		return
 	}
 
-	var auth *services.WindsurfAuthJSON
-	if got, err := a.switchSvc.GetCurrentAuth(); err == nil {
-		auth = got
-	} else {
-		utils.DLog("[热轮询] GetCurrentAuth 失败: %v", err)
-	}
-	authToken := authTokenOrEmpty(auth)
-	curID := a.findCurrentMonitoredAccountID(auth, settings.MitmOnly)
+	curID := a.findCurrentMonitoredAccountID()
 	if curID == "" {
-		authEmail := ""
-		if auth != nil {
-			authEmail = auth.Email
-		}
-		utils.DLog("[热轮询] 跳过: 无法匹配当前账号 (authEmail=%s mitmOnly=%v 号池=%d)", authEmail, settings.MitmOnly, a.store.AccountCount())
+		utils.DLog("[热轮询] 跳过: 无法匹配当前账号 (号池=%d)", a.store.AccountCount())
 		return
 	}
 	cur, err := a.store.GetAccount(curID)
@@ -226,7 +207,7 @@ func (a *App) pollCurrentSessionQuotaAndMaybeSwitch() {
 		utils.DLog("[热轮询/reset] due-now account=%s action=force-refresh reason=official-reset-reached daily={%s} weekly={%s}",
 			labelAccountResult(cur), describeQuotaResetField(cur.DailyRemaining, cur.DailyResetAt, cur.LastQuotaUpdate, now), describeQuotaResetField(cur.WeeklyRemaining, cur.WeeklyResetAt, cur.LastQuotaUpdate, now))
 	}
-	if cur.WindsurfAPIKey == "" && strings.TrimSpace(cur.Token) == "" && authToken == "" &&
+	if cur.WindsurfAPIKey == "" && strings.TrimSpace(cur.Token) == "" &&
 		cur.RefreshToken == "" && (cur.Email == "" || cur.Password == "") {
 		utils.DLog("[热轮询] 跳过: %s 无任何可用凭证", cur.Email)
 		return
@@ -234,11 +215,7 @@ func (a *App) pollCurrentSessionQuotaAndMaybeSwitch() {
 
 	utils.DLog("[热轮询] 开始查额度: %s (id=%s plan=%s)", cur.Email, curID[:min(8, len(curID))], cur.PlanName)
 	copyAcc := cur
-	if authToken != "" {
-		copyAcc.Token = authToken
-	} else {
-		a.syncAccountCredentials(&copyAcc)
-	}
+	a.syncAccountCredentials(&copyAcc)
 	// 热轮询仅拉额度，避免 RegisterUser / GetAccountInfo 等拖慢后台与重复请求
 	quotaOK := a.enrichAccountQuotaOnly(&copyAcc)
 	utils.DLog("[热轮询] enrichQuota 结果: ok=%v daily=%s weekly=%s total=%d used=%d", quotaOK, copyAcc.DailyRemaining, copyAcc.WeeklyRemaining, copyAcc.TotalQuota, copyAcc.UsedQuota)
@@ -260,26 +237,14 @@ func (a *App) pollCurrentSessionQuotaAndMaybeSwitch() {
 	utils.DLog("[热轮询] ★ %s 额度用尽! (daily=%s weekly=%s plan=%s) → 触发切号", copyAcc.Email, copyAcc.DailyRemaining, copyAcc.WeeklyRemaining, copyAcc.PlanName)
 	utils.DLog("[热轮询/reset] decision account=%s result=exhausted-switch daily={%s} weekly={%s}",
 		labelAccountResult(copyAcc), describeQuotaResetField(copyAcc.DailyRemaining, copyAcc.DailyResetAt, copyAcc.LastQuotaUpdate, time.Now()), describeQuotaResetField(copyAcc.WeeklyRemaining, copyAcc.WeeklyResetAt, copyAcc.LastQuotaUpdate, time.Now()))
-	if settings.MitmOnly {
-		if next, err := a.rotateMitmToNextAvailable(curID, settings.AutoSwitchPlanFilter); err == nil {
-			utils.DLog("[热轮询] MITM轮换成功 → %s", next.Email)
-			a.lastQuotaHotSwitchMu.Lock()
-			a.lastQuotaHotSwitch = time.Now()
-			a.lastQuotaHotSwitchMu.Unlock()
-		} else {
-			utils.DLog("[热轮询] MITM轮换失败: %v", err)
-		}
-		return
-	}
-	if next, err := a.autoSwitchToNext(curID, settings.AutoSwitchPlanFilter); err != nil {
-		utils.DLog("[热轮询] AutoSwitchToNext 失败: %v", err)
-		return
+	if next, err := a.rotateMitmToNextAvailable(curID, settings.AutoSwitchPlanFilter); err == nil {
+		utils.DLog("[热轮询] MITM轮换成功 → %s", next.Email)
+		a.lastQuotaHotSwitchMu.Lock()
+		a.lastQuotaHotSwitch = time.Now()
+		a.lastQuotaHotSwitchMu.Unlock()
 	} else {
-		utils.DLog("[热轮询] AutoSwitchToNext 成功 → %s", next)
+		utils.DLog("[热轮询] MITM轮换失败: %v", err)
 	}
-	a.lastQuotaHotSwitchMu.Lock()
-	a.lastQuotaHotSwitch = time.Now()
-	a.lastQuotaHotSwitchMu.Unlock()
 }
 
 func describeQuotaResetField(remaining, resetAt, lastQuotaUpdate string, now time.Time) string {
@@ -388,8 +353,7 @@ func (a *App) refreshDueQuotas() {
 	}
 
 	if settings.AutoSwitchOnQuotaExhausted {
-		auth, _ := a.switchSvc.GetCurrentAuth()
-		curID := a.findCurrentMonitoredAccountID(auth, settings.MitmOnly)
+		curID := a.findCurrentMonitoredAccountID()
 		if curID != "" {
 			if cur, err := a.store.GetAccount(curID); err == nil && utils.AccountQuotaExhausted(&cur) {
 				switchAfterUnlock.currentID = curID
@@ -403,42 +367,8 @@ func (a *App) refreshDueQuotas() {
 	}
 
 	if switchAfterUnlock.currentID != "" {
-		if settings := a.store.GetSettings(); settings.MitmOnly {
-			_, _ = a.rotateMitmToNextAvailable(switchAfterUnlock.currentID, switchAfterUnlock.planFilter)
-			return
-		}
-		_, _ = a.autoSwitchToNext(switchAfterUnlock.currentID, switchAfterUnlock.planFilter)
+		_, _ = a.rotateMitmToNextAvailable(switchAfterUnlock.currentID, switchAfterUnlock.planFilter)
 	}
-}
-
-func (a *App) findAccountIDForWindsurfAuth(auth *services.WindsurfAuthJSON) string {
-	if auth == nil {
-		return ""
-	}
-	accounts := a.store.GetAllAccounts()
-	emailWant := strings.TrimSpace(strings.ToLower(auth.Email))
-	tokenWant := strings.TrimSpace(auth.Token)
-	for _, acc := range accounts {
-		if emailWant != "" && strings.TrimSpace(strings.ToLower(acc.Email)) == emailWant {
-			return acc.ID
-		}
-	}
-	if tokenWant != "" {
-		if claims, err := a.windsurfSvc.DecodeJWTClaims(tokenWant); err == nil && claims != nil && claims.Email != "" {
-			je := strings.TrimSpace(strings.ToLower(claims.Email))
-			for _, acc := range accounts {
-				if strings.TrimSpace(strings.ToLower(acc.Email)) == je {
-					return acc.ID
-				}
-			}
-		}
-		for _, acc := range accounts {
-			if acc.Token != "" && acc.Token == tokenWant {
-				return acc.ID
-			}
-		}
-	}
-	return ""
 }
 
 func findAccountIDForMITMAPIKey(accounts []models.Account, apiKey string) string {
@@ -454,33 +384,17 @@ func findAccountIDForMITMAPIKey(accounts []models.Account, apiKey string) string
 	return ""
 }
 
-func resolveCurrentAccountID(accounts []models.Account, auth *services.WindsurfAuthJSON, activeMITMKey string, authResolver func(*services.WindsurfAuthJSON) string) string {
-	if id := findAccountIDForMITMAPIKey(accounts, activeMITMKey); id != "" {
-		return id
-	}
-	if authResolver != nil {
-		return authResolver(auth)
-	}
-	return ""
-}
-
-func (a *App) findCurrentMonitoredAccountID(auth *services.WindsurfAuthJSON, preferMITMKey bool) string {
+func (a *App) findCurrentMonitoredAccountID() string {
 	accounts := a.store.GetAllAccounts()
 	activeMITMKey := ""
-	if preferMITMKey && a.mitmProxy != nil {
+	if a.mitmProxy != nil {
 		activeMITMKey = a.mitmProxy.CurrentAPIKey()
 	}
-	authEmail := ""
-	if auth != nil {
-		authEmail = auth.Email
-	}
-	id := resolveCurrentAccountID(accounts, auth, activeMITMKey, func(auth *services.WindsurfAuthJSON) string {
-		return a.findAccountIDForWindsurfAuth(auth)
-	})
+	id := findAccountIDForMITMAPIKey(accounts, activeMITMKey)
 	if id != "" {
-		utils.DLog("[匹配] findCurrentMonitored → id=%s (mitmKey=%v authEmail=%s)", id[:min(8, len(id))], activeMITMKey != "", authEmail)
+		utils.DLog("[匹配] findCurrentMonitored → id=%s (mitmKey=%v)", id[:min(8, len(id))], activeMITMKey != "")
 	} else {
-		utils.DLog("[匹配] findCurrentMonitored → 未匹配 (mitmKey=%v authEmail=%s accounts=%d)", activeMITMKey != "", authEmail, len(accounts))
+		utils.DLog("[匹配] findCurrentMonitored → 未匹配 (mitmKey=%v accounts=%d)", activeMITMKey != "", len(accounts))
 	}
 	return id
 }

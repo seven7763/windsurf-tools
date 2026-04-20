@@ -195,6 +195,11 @@ func ClassifyConnectError(ce ConnectErrorResult) (upstreamFailureKind, string) {
 	msgLower := strings.ToLower(ce.Message)
 	combined := code + " " + msgLower
 
+	// Priority 0: Global rate limit
+	if isGlobalRateLimitText(combined) {
+		return upstreamFailureGlobalRateLimit, formatConnectDetail(ce)
+	}
+
 	// Priority 1: Rate limit
 	if isRateLimitText(combined) {
 		return upstreamFailureRateLimit, formatConnectDetail(ce)
@@ -227,8 +232,13 @@ func ClassifyConnectError(ce ConnectErrorResult) (upstreamFailureKind, string) {
 		return upstreamFailureAuth, formatConnectDetail(ce)
 	}
 
-	// Priority 5: Internal/unavailable
-	if code == "internal" || code == "unavailable" {
+	// Priority 5: Unavailable (transient — 'Model provider unreachable' etc.)
+	if code == "unavailable" || strings.Contains(msgLower, "provider unreachable") || strings.Contains(msgLower, "model provider") {
+		return upstreamFailureUnavailable, formatConnectDetail(ce)
+	}
+
+	// Priority 6: Internal
+	if code == "internal" {
 		return upstreamFailureInternal, formatConnectDetail(ce)
 	}
 

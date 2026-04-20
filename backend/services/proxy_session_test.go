@@ -118,7 +118,7 @@ func TestPickPoolKeyForSession_LeastConnections(t *testing.T) {
 	}
 }
 
-func TestPickPoolKeyForSession_ExhaustedKeepSticky(t *testing.T) {
+func TestPickPoolKeyForSession_ExhaustedMigrates(t *testing.T) {
 	p := newTestProxy([]string{"key-a", "key-b"})
 
 	// Bind conv-1 to key-a
@@ -129,13 +129,34 @@ func TestPickPoolKeyForSession_ExhaustedKeepSticky(t *testing.T) {
 	p.keyStates[key1].markExhausted()
 	p.mu.Unlock()
 
-	// 额度耗尽时已有 conversation 保持粘性，不迁移
+	// 额度耗尽时已有 conversation 应该迁移到新 key（不保持粘性）
+	// RuntimeExhausted 的 key 不会自动恢复，继续粘性只会让对话永远卡死
 	key2, jwt2 := p.pickPoolKeyForSession("conv-1")
-	if key2 != key1 {
-		t.Errorf("expected sticky to %q (exhausted), got migrated to %q", key1, key2)
+	if key2 == key1 {
+		t.Errorf("expected migration away from exhausted %q, got same key", key1)
 	}
 	if len(jwt2) == 0 {
-		t.Error("expected non-empty jwt with sticky override")
+		t.Error("expected non-empty jwt after migration from exhausted key")
+	}
+}
+
+func TestPickPoolKeyForSession_RateLimitedKeepSticky(t *testing.T) {
+	p := newTestProxy([]string{"key-a", "key-b"})
+
+	// Bind conv-1 to key-a
+	key1, _ := p.pickPoolKeyForSession("conv-1")
+
+	// Mark key-a as rate-limited (cooldown) → should keep sticky
+	p.mu.Lock()
+	p.keyStates[key1].markRateLimited()
+	p.mu.Unlock()
+
+	key2, jwt2 := p.pickPoolKeyForSession("conv-1")
+	if key2 != key1 {
+		t.Errorf("expected sticky to %q (rate-limited), got migrated to %q", key1, key2)
+	}
+	if len(jwt2) == 0 {
+		t.Error("expected non-empty jwt with sticky override for rate-limited key")
 	}
 }
 
@@ -295,6 +316,91 @@ func TestConcurrentSessionAccess(t *testing.T) {
 	p.sessionsMu.RUnlock()
 	if count == 0 {
 		t.Error("expected some sessions after concurrent access")
+	}
+}
+
+// ── Pending new-conversation key tests ──
+
+// TestPickKeyForNewConversation_DistributesAcrossKeys verifies that
+// pickKeyForNewConversation distributes first-messages across pool keys
+// using pending virtual session counts.
+func TestPickKeyForNewConversation_DistributesAcrossKeys(t *testing.T) {
+	p := newTestProxy([]string{"key-a", "key-b", "key-c"})
+
+	key1, jwt1 := p.pickKeyForNewConversation()
+	if key1 == "" || len(jwt1) == 0 {
+		t.Fatal("pickKeyForNewConversation returned empty")
+	}
+	key2, _ := p.pickKeyForNewConversation()
+	key3, _ := p.pickKeyForNewConversation()
+
+	// All three keys should be different (round-robin via pending counts)
+	if key1 == key2 || key2 == key3 || key1 == key3 {
+		t.Errorf("expected 3 different keys, got %s, %s, %s", key1, key2, key3)
+	}
+}
+
+// TestPendingKeyMatchesFirstAndSecondMessage verifies that when a first
+// message (no convID) uses pickKeyForNewConversation, the subsequent
+// pickPoolKeyForSession (with a new convID) binds to the same key.
+func TestPendingKeyMatchesFirstAndSecondMessage(t *testing.T) {
+	p := newTestProxy([]string{"key-a", "key-b", "key-c"})
+
+	// Simulate 3 new conversations' first messages
+	firstKeys := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		k, _ := p.pickKeyForNewConversation()
+		firstKeys[i] = k
+	}
+
+	// Now simulate the second messages arriving in order
+	convIDs := []string{"conv-aaa-bbb-ccc-111", "conv-aaa-bbb-ccc-222", "conv-aaa-bbb-ccc-333"}
+	for i, convID := range convIDs {
+		secondKey, jwt := p.pickPoolKeyForSession(convID)
+		if secondKey != firstKeys[i] {
+			t.Errorf("conv %d: first=%s second=%s, want same key", i, firstKeys[i], secondKey)
+		}
+		if len(jwt) == 0 {
+			t.Errorf("conv %d: expected non-empty JWT", i)
+		}
+	}
+}
+
+// TestPendingKeyExpiry verifies that expired pending entries are discarded.
+func TestPendingKeyExpiry(t *testing.T) {
+	p := newTestProxy([]string{"key-a", "key-b"})
+
+	// Manually push an expired entry
+	p.pendingNewConvMu.Lock()
+	p.pendingNewConvKeys = append(p.pendingNewConvKeys, pendingKeyEntry{
+		PoolKey: "key-a",
+		At:      time.Now().Add(-2 * pendingNewConvMaxAge), // well past expiry
+	})
+	p.pendingNewConvMu.Unlock()
+
+	// popPendingNewConvKey should skip expired and return ""
+	got := p.popPendingNewConvKey()
+	if got != "" {
+		t.Errorf("expected empty from expired pending, got %s", got)
+	}
+
+	// New convID should fall through to leastConnectionsKey instead
+	key, jwt := p.pickPoolKeyForSession("conv-new-fresh-uuid-1234")
+	if key == "" || len(jwt) == 0 {
+		t.Fatal("pickPoolKeyForSession should still work via leastConnections fallback")
+	}
+}
+
+// TestPendingKeySkipsExcludedKey verifies that if the pending key is in
+// the excludeKeys list, it falls through to leastConnectionsKey.
+func TestPendingKeySkipsExcludedKey(t *testing.T) {
+	p := newTestProxy([]string{"key-a", "key-b"})
+
+	k, _ := p.pickKeyForNewConversation()
+	// Request second message with the pending key excluded
+	secondKey, _ := p.pickPoolKeyForSession("conv-excl-test-uuid-5678", k)
+	if secondKey == k {
+		t.Errorf("expected different key when pending key is excluded, got same: %s", k)
 	}
 }
 

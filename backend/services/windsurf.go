@@ -25,7 +25,7 @@ const (
 	GRPCUpstreamIP   = "34.49.14.144"
 	WindsurfAppName  = "windsurf"
 	WindsurfVersion  = "1.48.2"
-	WindsurfClient   = "1.9566.11"
+	WindsurfClient   = "2.0.50"
 )
 
 type WindsurfService struct {
@@ -78,6 +78,9 @@ type JWTClaims struct {
 	TrialEnd               string
 	MaxPremiumChatMessages int
 	AuthUID                string
+	TeamID                 string // e.g. "devin-team$account-XXX"，真实 IDE 聊天请求 F32 用此值
+	UserID                 string // e.g. "user-XXX"，真实 IDE 聊天请求 F20 用此值（从 auth_uid 切出）
+	APIKeyClaim            string // JWT 里的 api_key 字段（"devin-synthetic-apikey$account-XXX$user-XXX"）
 }
 
 type AccountProfile struct {
@@ -124,6 +127,22 @@ type planStatusPayload struct {
 }
 
 func (s *WindsurfService) LoginWithEmail(email, password string) (*FirebaseSignInResp, error) {
+	// 先尝试老 Firebase 协议
+	resp, firebaseErr := s.loginFirebase(email, password)
+	if firebaseErr == nil {
+		return resp, nil
+	}
+	// Firebase 失败，尝试新 auth1 协议（Windsurf 官网 /_devin-auth/password/login）
+	resp, auth1Err := s.loginAuth1(email, password)
+	if auth1Err == nil {
+		return resp, nil
+	}
+	// 两种协议都失败，返回合并的错误信息
+	return nil, fmt.Errorf("登录失败 — Firebase: %v; auth1: %v", firebaseErr, auth1Err)
+}
+
+// loginFirebase 走老的 Identity Toolkit 接口。
+func (s *WindsurfService) loginFirebase(email, password string) (*FirebaseSignInResp, error) {
 	apiURL := fmt.Sprintf(
 		"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=%s",
 		FirebaseAPIKey,
@@ -155,6 +174,46 @@ func (s *WindsurfService) LoginWithEmail(email, password string) (*FirebaseSignI
 		return nil, fmt.Errorf("解析登录响应失败: %w", err)
 	}
 	return &result, nil
+}
+
+// loginAuth1 走新的 auth1 协议。响应 {token, user_id, email} —— token 填到 IDToken 字段，
+// RefreshToken 留空（auth1 无 refresh_token 概念）。
+func (s *WindsurfService) loginAuth1(email, password string) (*FirebaseSignInResp, error) {
+	payload := map[string]string{"email": email, "password": password}
+	bodyJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("编码 auth1 请求失败: %w", err)
+	}
+	req, _ := http.NewRequest("POST", "https://windsurf.com/_devin-auth/password/login", bytes.NewReader(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://windsurf.com")
+	req.Header.Set("Referer", "https://windsurf.com/account/login")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/147.0.0.0")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("auth1 登录请求失败(网络): %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("auth1 登录失败(%d): %s", resp.StatusCode, truncate(string(respBody), 200))
+	}
+	var r struct {
+		Token  string `json:"token"`
+		UserID string `json:"user_id"`
+		Email  string `json:"email"`
+	}
+	if err := json.Unmarshal(respBody, &r); err != nil {
+		return nil, fmt.Errorf("解析 auth1 响应失败: %w", err)
+	}
+	if r.Token == "" {
+		return nil, fmt.Errorf("auth1 响应未返回 token")
+	}
+	return &FirebaseSignInResp{
+		IDToken: r.Token,
+		Email:   r.Email,
+		LocalID: r.UserID,
+	}, nil
 }
 
 func (s *WindsurfService) RefreshToken(refreshToken string) (*FirebaseRefreshResp, error) {
@@ -403,16 +462,24 @@ func (s *WindsurfService) GetPlanStatusJSON(token string) (*AccountProfile, erro
 }
 
 func (s *WindsurfService) GetUserStatus(apiKey string) (*AccountProfile, error) {
-	grpcURL := fmt.Sprintf("https://%s/exa.seat_management_pb.SeatManagementService/GetUserStatus", ResolveUpstreamIP())
+	// Connect unary (application/proto, 无 gRPC envelope)——匹配 IDE 2.x 的实际行为。
+	connectURL := fmt.Sprintf("https://%s/exa.seat_management_pb.SeatManagementService/GetUserStatus", ResolveUpstreamIP())
 	metadata := buildAPIKeyMetadata(apiKey)
-	envelope := buildGRPCEnvelope(metadata)
 
-	req, err := http.NewRequest("POST", grpcURL, bytes.NewReader(envelope))
+	// Body: F1 嵌套 metadata 子消息（与 GetJWTByAPIKey 一致）
+	body := make([]byte, 0, 2+len(metadata))
+	body = append(body, 0x0a)
+	body = append(body, encodeLength(len(metadata))...)
+	body = append(body, metadata...)
+
+	req, err := http.NewRequest("POST", connectURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("创建 GetUserStatus 请求失败: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/grpc")
-	req.Header.Set("Authorization", apiKey)
+	req.Header.Set("Content-Type", "application/proto")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Host = GRPCUpstreamHost
 
 	resp, err := s.client.Do(req)
@@ -422,21 +489,29 @@ func (s *WindsurfService) GetUserStatus(apiKey string) (*AccountProfile, error) 
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	utils.DLog("[API] GetUserStatus resp: HTTP %d, body=%d bytes, grpc-status=%s", resp.StatusCode, len(respBody), resp.Header.Get("grpc-status"))
+	utils.DLog("[API] GetUserStatus resp: HTTP %d, body=%d bytes, ce=%s",
+		resp.StatusCode, len(respBody), resp.Header.Get("Content-Encoding"))
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("GetUserStatus失败(HTTP %d, grpc-status=%s, msg=%s): %s",
-			resp.StatusCode, resp.Header.Get("grpc-status"), resp.Header.Get("grpc-message"), truncate(string(respBody), 200))
+		return nil, fmt.Errorf("GetUserStatus失败(HTTP %d): %s",
+			resp.StatusCode, truncate(string(respBody), 200))
 	}
 
-	payload, err := unwrapGRPCPayload(respBody)
-	if err != nil {
-		return nil, fmt.Errorf("解析 GetUserStatus 响应失败: %w (rawLen=%d)", err, len(respBody))
+	// 响应可能 gzip 压缩（Connect 按 Accept-Encoding 协商）
+	if len(respBody) >= 2 && respBody[0] == 0x1f && respBody[1] == 0x8b {
+		reader, gzErr := gzip.NewReader(bytes.NewReader(respBody))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(reader)
+			reader.Close()
+			if readErr == nil {
+				respBody = decompressed
+			}
+		}
 	}
-	utils.DLog("[API] GetUserStatus payload: %d bytes", len(payload))
+	utils.DLog("[API] GetUserStatus payload: %d bytes", len(respBody))
 
-	profile := parseUserStatusPayload(payload)
+	profile := parseUserStatusPayload(respBody)
 	if profile == nil {
-		return nil, fmt.Errorf("GetUserStatus 响应无法解析 (payloadLen=%d)", len(payload))
+		return nil, fmt.Errorf("GetUserStatus 响应无法解析 (payloadLen=%d)", len(respBody))
 	}
 	return profile, nil
 }
@@ -465,8 +540,29 @@ func (s *WindsurfService) DecodeJWTClaims(token string) (*JWTClaims, error) {
 		TrialEnd:               jwtSubscriptionEndFromRaw(raw),
 		MaxPremiumChatMessages: int(numberValue(raw["max_num_premium_chat_messages"])),
 		AuthUID:                stringValue(raw["auth_uid"]),
+		TeamID:                 stringValue(raw["team_id"]),
+		APIKeyClaim:            stringValue(raw["api_key"]),
+	}
+	claims.UserID = extractUserIDFromAuthIdent(claims.AuthUID)
+	if claims.UserID == "" {
+		claims.UserID = extractUserIDFromAuthIdent(claims.APIKeyClaim)
 	}
 	return claims, nil
+}
+
+// extractUserIDFromAuthIdent 从 "devin-auth-uid$account-XXX$user-YYY" 或
+// "devin-synthetic-apikey$account-XXX$user-YYY" 里切出 "user-YYY"。
+func extractUserIDFromAuthIdent(s string) string {
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, "$")
+	for _, p := range parts {
+		if strings.HasPrefix(p, "user-") {
+			return p
+		}
+	}
+	return ""
 }
 
 // jwtSubscriptionEndFromRaw 合并试用/订阅结束时间：官方 JWT 曾只用 windsurf_pro_trial_end_time，部分账号可能用其它字段。

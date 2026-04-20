@@ -108,7 +108,7 @@ func TestMarkRateLimitedAndRotateNotifiesCurrentKeyChanged(t *testing.T) {
 	}
 }
 
-func TestPrefetchJWTsOnlyPrefetchesCurrentKey(t *testing.T) {
+func TestPrefetchJWTsPrefetchesAllKeys(t *testing.T) {
 	originalGetJWT := getJWTByAPIKeyFn
 	t.Cleanup(func() {
 		getJWTByAPIKeyFn = originalGetJWT
@@ -133,12 +133,13 @@ func TestPrefetchJWTsOnlyPrefetchesCurrentKey(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(calls) != 1 || calls[0] != "sk-ws-b" {
-		t.Fatalf("prefetchJWTs() calls = %#v, want only current key sk-ws-b", calls)
+	// ★ 现在应预取所有 3 个 key 的 JWT
+	if len(calls) != 3 {
+		t.Fatalf("prefetchJWTs() calls = %#v, want all 3 keys", calls)
 	}
 }
 
-func TestRefreshJWTsOnceOnlyRefreshesCurrentKey(t *testing.T) {
+func TestRefreshJWTsOnceRefreshesAllKeys(t *testing.T) {
 	originalGetJWT := getJWTByAPIKeyFn
 	t.Cleanup(func() {
 		getJWTByAPIKeyFn = originalGetJWT
@@ -164,8 +165,9 @@ func TestRefreshJWTsOnceOnlyRefreshesCurrentKey(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(calls) != 1 || calls[0] != "sk-ws-b" {
-		t.Fatalf("refreshJWTsOnce() calls = %#v, want only current key sk-ws-b", calls)
+	// ★ 现在应强制刷新所有 3 个 key
+	if len(calls) != 3 {
+		t.Fatalf("refreshJWTsOnce() calls = %#v, want all 3 keys", calls)
 	}
 }
 
@@ -682,7 +684,7 @@ func TestHandleResponseSkipsTrafficDumpReadForStreamingResponses(t *testing.T) {
 }
 
 func TestStripConversationIDFromBodyRemovesConversationField(t *testing.T) {
-	body := WrapGRPCEnvelope(BuildChatRequest([]ChatMessage{{Role: "user", Content: "hello"}}, "sk-ws-a", "jwt-a", "conv-123"))
+	body := WrapGRPCEnvelope(BuildChatRequest([]ChatMessage{{Role: "user", Content: "hello"}}, "sk-ws-a", "jwt-a", "conv-123", nil))
 
 	strippedBody, stripped := StripConversationIDFromBody(body)
 	if !stripped {
@@ -717,7 +719,7 @@ func TestRetryTransportInvalidCascadeSessionPassthroughWithoutRetry(t *testing.T
 	})
 
 	rt := &retryTransport{base: base, proxy: proxy, maxRetry: 2}
-	reqBody := WrapGRPCEnvelope(BuildChatRequest([]ChatMessage{{Role: "user", Content: "hello"}}, "sk-ws-a", "jwt-a", "conv-123"))
+	reqBody := WrapGRPCEnvelope(BuildChatRequest([]ChatMessage{{Role: "user", Content: "hello"}}, "sk-ws-a", "jwt-a", "conv-123", nil))
 	req, err := http.NewRequest(http.MethodPost, "https://server.self-serve.windsurf.com/exa.api_server_pb.ApiServerService/GetChatMessage", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)
@@ -758,7 +760,7 @@ func TestRetryTransportInvalidCascadeSessionPassthroughWithMultipleKeys(t *testi
 	})
 
 	rt := &retryTransport{base: base, proxy: proxy, maxRetry: 2}
-	reqBody := WrapGRPCEnvelope(BuildChatRequest([]ChatMessage{{Role: "user", Content: "hello"}}, "sk-ws-a", "jwt-a", "conv-123"))
+	reqBody := WrapGRPCEnvelope(BuildChatRequest([]ChatMessage{{Role: "user", Content: "hello"}}, "sk-ws-a", "jwt-a", "conv-123", nil))
 	req, err := http.NewRequest(http.MethodPost, "https://server.self-serve.windsurf.com/exa.api_server_pb.ApiServerService/GetChatMessage", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)

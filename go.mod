@@ -7,7 +7,6 @@ toolchain go1.24.5
 require (
 	github.com/getlantern/systray v1.2.2
 	github.com/google/uuid v1.6.0
-	github.com/kardianos/service v1.2.2
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/net v0.43.0
 	golang.org/x/sys v0.35.0

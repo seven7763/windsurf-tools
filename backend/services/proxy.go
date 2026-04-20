@@ -83,6 +83,7 @@ const (
 // PoolKeyState tracks the runtime state of each pool key.
 type PoolKeyState struct {
 	APIKey           string
+	Plan             string // "Pro", "Trial", "Free", "Team", etc. 空串=未知
 	JWT              []byte
 	JWTUpdatedAt     time.Time
 	Healthy          bool
@@ -93,6 +94,10 @@ type PoolKeyState struct {
 	RequestCount     int
 	SuccessCount     int
 	TotalExhausted   int
+	// ★ Per-key 稳定设备/session 指纹 — 每个 key 拥有独立的 session ID 和设备指纹
+	// 服务端通过 F32(session UUID) 做 session 级限速，必须每 key 独立
+	SessionID  string // F32: 稳定 UUID v4，创建时生成
+	DeviceHash string // F31/F27: 稳定 hex hash，创建时生成
 }
 
 type jwtFetchCall struct {
@@ -103,8 +108,10 @@ type jwtFetchCall struct {
 
 func newPoolKeyState(apiKey string) *PoolKeyState {
 	return &PoolKeyState{
-		APIKey:  apiKey,
-		Healthy: true,
+		APIKey:     apiKey,
+		Healthy:    true,
+		SessionID:  generateStableUUID(),
+		DeviceHash: generateStableHexHash(),
 	}
 }
 
@@ -159,6 +166,19 @@ func (s *PoolKeyState) recordSuccess() {
 	s.Disabled = false
 	s.RuntimeExhausted = false
 	s.ConsecutiveErrs = 0
+}
+
+// keyFingerprint returns the per-key stable fingerprint for identity replacement.
+// Caller should hold p.mu.RLock() or p.mu.Lock().
+func (p *MitmProxy) keyFingerprint(apiKey string) *KeyFingerprint {
+	state := p.keyStates[apiKey]
+	if state == nil || (state.SessionID == "" && state.DeviceHash == "") {
+		return nil
+	}
+	return &KeyFingerprint{
+		SessionID:  state.SessionID,
+		DeviceHash: state.DeviceHash,
+	}
 }
 
 // RecordKeySuccess 外部（如 Relay）通知号池某个 key 请求成功
@@ -219,6 +239,17 @@ type MitmProxy struct {
 	// ── Session binding (per-conversation sticky routing) ──
 	sessionsMu sync.RWMutex
 	sessionMap map[string]*SessionBinding // conversation_id → binding
+
+	// ── 新对话首条消息追踪 ──
+	// 首条消息(无 convID)使用的 pool key 会推入此队列；
+	// 当第二条消息(有 convID)到达且 convID 未绑定时，从队列弹出匹配的 key。
+	pendingNewConvMu   sync.Mutex
+	pendingNewConvKeys []pendingKeyEntry
+
+	// ── 全局 Trial 限速退避 ──
+	// 检测到 "global rate limit for trial users" 时设置退避截止时间，
+	// 退避期间 key 选择自动跳过 Trial/Free key，优先使用 Pro/Team key。
+	globalTrialRateLimitUntil time.Time
 }
 
 var injectCodeiumConfigFn = InjectCodeiumConfig
@@ -257,6 +288,7 @@ type MitmProxyStatus struct {
 
 type PoolKeyInfo struct {
 	KeyShort          string `json:"key_short"`
+	Plan              string `json:"plan"`
 	Healthy           bool   `json:"healthy"`
 	Disabled          bool   `json:"disabled"`
 	RuntimeExhausted  bool   `json:"runtime_exhausted"`
@@ -281,9 +313,17 @@ type MitmProxyEvent struct {
 // ── Session binding (per-conversation sticky routing) ──
 
 const (
-	sessionMapMaxEntries = 500
-	sessionExpireMinutes = 30
+	sessionMapMaxEntries  = 500
+	sessionExpireMinutes  = 30
+	pendingNewConvMaxAge  = 60 * time.Second // 首条消息 pending key 最长保留时间
+	pendingNewConvMaxSize = 20               // pending 队列上限
 )
+
+// pendingKeyEntry 记录首条消息(无 convID)选用的 pool key，用于与后续带 convID 的第二条消息匹配。
+type pendingKeyEntry struct {
+	PoolKey string
+	At      time.Time
+}
 
 // SessionBinding maps a conversation (by conversation_id) to a specific pool key.
 type SessionBinding struct {
@@ -298,6 +338,7 @@ type SessionBinding struct {
 
 // SessionBindingInfo is the frontend-safe DTO for session bindings.
 type SessionBindingInfo struct {
+	ConvID       string `json:"conv_id"`
 	ConvIDShort  string `json:"conv_id_short"`
 	PoolKeyShort string `json:"pool_key_short"`
 	BoundAt      string `json:"bound_at"`
@@ -307,12 +348,12 @@ type SessionBindingInfo struct {
 }
 
 type quotaStreamWatchBody struct {
-	inner            io.ReadCloser
-	onQuota          func(detail string)
-	onSuccess        func(completionTokens int)
-	recentText       string
-	sawQuota         bool
-	finalized        bool
+	inner      io.ReadCloser
+	onQuota    func(detail string)
+	onSuccess  func(completionTokens int)
+	recentText string
+	sawQuota   bool
+	finalized  bool
 
 	// gRPC parser stream states
 	grpcBuf          []byte
@@ -725,6 +766,101 @@ func (p *MitmProxy) SetPoolKeys(keys []string) {
 	}
 }
 
+// PoolKeyInput carries an API key together with its plan type for pool configuration.
+type PoolKeyInput struct {
+	APIKey string
+	Plan   string // "Pro", "Trial", "Free", "Team", etc.
+}
+
+// SetPoolKeysWithPlan configures the account pool from API keys with plan info.
+func (p *MitmProxy) SetPoolKeysWithPlan(infos []PoolKeyInput) {
+	keys := make([]string, 0, len(infos))
+	planMap := make(map[string]string, len(infos))
+	for _, info := range infos {
+		keys = append(keys, info.APIKey)
+		planMap[info.APIKey] = info.Plan
+	}
+	p.SetPoolKeys(keys)
+	// 更新 plan 信息
+	p.mu.Lock()
+	for k, plan := range planMap {
+		if state := p.keyStates[k]; state != nil {
+			state.Plan = plan
+		}
+	}
+	p.mu.Unlock()
+}
+
+// isTrialOrFreeKey returns true if the key's plan is Trial or Free (subject to global trial rate limit).
+func (p *MitmProxy) isTrialOrFreeKey(apiKey string) bool {
+	state := p.keyStates[apiKey]
+	if state == nil {
+		return true // unknown → treat as trial (conservative)
+	}
+	plan := strings.ToLower(state.Plan)
+	return plan == "" || plan == "trial" || plan == "free" || plan == "未识别"
+}
+
+// isProOrTeamKey returns true if the key's plan is Pro, Team, Max/Ultimate, or Enterprise.
+func (p *MitmProxy) isProOrTeamKey(apiKey string) bool {
+	return !p.isTrialOrFreeKey(apiKey)
+}
+
+// isGlobalTrialRateLimitActive returns true if we're in global trial rate limit backoff.
+func (p *MitmProxy) isGlobalTrialRateLimitActive() bool {
+	return time.Now().Before(p.globalTrialRateLimitUntil)
+}
+
+const globalTrialRateLimitBackoffSec = 60
+
+// markGlobalTrialRateLimit sets global trial rate limit backoff.
+func (p *MitmProxy) markGlobalTrialRateLimit() {
+	p.mu.Lock()
+	p.globalTrialRateLimitUntil = time.Now().Add(globalTrialRateLimitBackoffSec * time.Second)
+	p.mu.Unlock()
+	p.log("★ 全局 Trial 限速退避已设置 (%ds)", globalTrialRateLimitBackoffSec)
+}
+
+// findProKey finds an available Pro/Team key in the pool, excluding excludeKey.
+// Caller must hold p.mu.RLock().
+func (p *MitmProxy) findProKey(excludeKey string) string {
+	for _, k := range p.poolKeys {
+		if k == excludeKey {
+			continue
+		}
+		state := p.keyStates[k]
+		if state == nil || !state.isAvailable() {
+			continue
+		}
+		if p.isProOrTeamKey(k) {
+			return k
+		}
+	}
+	return ""
+}
+
+// rebindSession migrates a conversation's session binding to a new key.
+func (p *MitmProxy) rebindSession(convID, newKey string) {
+	p.sessionsMu.Lock()
+	defer p.sessionsMu.Unlock()
+	if binding, ok := p.sessionMap[convID]; ok {
+		oldKey := binding.PoolKey
+		binding.PoolKey = newKey
+		binding.LastSeenAt = time.Now()
+		p.log("会话迁移: conv=%s... %s... → %s...",
+			convID[:minStr(8, len(convID))],
+			oldKey[:minStr(12, len(oldKey))],
+			newKey[:minStr(12, len(newKey))])
+	} else {
+		// New binding
+		p.sessionMap[convID] = &SessionBinding{
+			PoolKey:    newKey,
+			BoundAt:    time.Now(),
+			LastSeenAt: time.Now(),
+		}
+	}
+}
+
 // Start starts the MITM proxy.
 func (p *MitmProxy) Start() error {
 	p.mu.Lock()
@@ -751,7 +887,7 @@ func (p *MitmProxy) Start() error {
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", p.port)
-	listener, err := tls.Listen("tcp", addr, tlsConfig)
+	listener, err := listenTLS(p.port, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("监听 %s 失败: %w", addr, err)
 	}
@@ -844,6 +980,7 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 
 		info := PoolKeyInfo{
 			KeyShort:         short,
+			Plan:             state.Plan,
 			Healthy:          state.Healthy,
 			Disabled:         state.Disabled,
 			RuntimeExhausted: state.RuntimeExhausted,
@@ -867,13 +1004,13 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 
 	// ── Phase 2: 在 sessionsMu 下收集会话信息（不持有 p.mu） ──
 	p.sessionsMu.RLock()
-	status.SessionCount = len(p.sessionMap)
 	now := time.Now()
 	for _, sb := range p.sessionMap {
-		if now.Sub(sb.LastSeenAt) > sessionExpireMinutes*time.Minute {
+		if now.Sub(sb.LastSeenAt) > time.Duration(sessionExpireMinutes)*time.Minute {
 			continue
 		}
 		status.ActiveSessions = append(status.ActiveSessions, SessionBindingInfo{
+			ConvID:       sb.ConversationID,
 			ConvIDShort:  sb.ConversationID[:minStr(12, len(sb.ConversationID))] + "...",
 			PoolKeyShort: sb.PoolKey[:minStr(16, len(sb.PoolKey))] + "...",
 			BoundAt:      sb.BoundAt.Format(time.RFC3339),
@@ -882,6 +1019,8 @@ func (p *MitmProxy) Status() MitmProxyStatus {
 			Title:        sb.Title,
 		})
 	}
+	// ★ SessionCount 仅统计活跃（未过期）会话，与 ActiveSessions 列表一致
+	status.SessionCount = len(status.ActiveSessions)
 
 	// Fill per-key BoundSessionCount
 	if len(status.PoolStatus) > 0 {
@@ -955,14 +1094,22 @@ type retryTransport struct {
 type upstreamFailureKind string
 
 const (
-	upstreamFailureNone       upstreamFailureKind = ""
-	upstreamFailureRateLimit  upstreamFailureKind = "rate_limit"
-	upstreamFailureQuota      upstreamFailureKind = "quota"
-	upstreamFailureAuth       upstreamFailureKind = "auth"
-	upstreamFailureInternal   upstreamFailureKind = "internal"
-	upstreamFailurePermission upstreamFailureKind = "permission"
-	upstreamFailureGRPC       upstreamFailureKind = "grpc"
+	upstreamFailureNone            upstreamFailureKind = ""
+	upstreamFailureRateLimit       upstreamFailureKind = "rate_limit"
+	upstreamFailureQuota           upstreamFailureKind = "quota"
+	upstreamFailureAuth            upstreamFailureKind = "auth"
+	upstreamFailureInternal        upstreamFailureKind = "internal"
+	upstreamFailurePermission      upstreamFailureKind = "permission"
+	upstreamFailureGRPC            upstreamFailureKind = "grpc"
+	upstreamFailureGlobalRateLimit upstreamFailureKind = "global_rate_limit"
+	upstreamFailureUnavailable     upstreamFailureKind = "unavailable"
 )
+
+// isGlobalRateLimitText 检测全局限速（非单 key 限速）关键词。
+func isGlobalRateLimitText(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "global") && strings.Contains(lower, "rate") && strings.Contains(lower, "limit")
+}
 
 func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// 保存原始 body 以便重试时重放
@@ -1107,8 +1254,39 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		isExhausted := kind == upstreamFailureQuota
 		isRateLimited := kind == upstreamFailureRateLimit
+		isGlobalRateLimit := kind == upstreamFailureGlobalRateLimit
+		isUnavailable := kind == upstreamFailureUnavailable
 		isAuthFailure := kind == upstreamFailureAuth || kind == upstreamFailurePermission
 		usedKey := req.Header.Get("X-Pool-Key-Used")
+
+		// ── 上游不可达 (Model provider unreachable)：用同一 key 重试 ──
+		if isUnavailable && attempt < rt.maxRetry {
+			rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
+			rt.proxy.log("★ 上游不可达，同 key 重试(%d/%d): %s... path=%s",
+				attempt+1, rt.maxRetry, usedKey[:minStr(12, len(usedKey))], req.URL.Path)
+			req.Body = io.NopCloser(bytes.NewReader(retryBody))
+			req.ContentLength = int64(len(retryBody))
+			continue
+		}
+
+		// ── Trial 限速：标记冷却+轮转，透传给 IDE ──
+		// 不能在 retryTransport 里换号重试，因为换号后 Cascade session 不匹配
+		// (服务端校验 session 绑定到 key)，会返回 "Invalid Cascade session"。
+		// 正确做法：标记当前 key 冷却 → 轮转到新 key → 透传错误给 IDE →
+		// IDE 自动重试时，新请求会用新 key + 正确的 session。
+		if isGlobalRateLimit {
+			rt.proxy.recordUpstreamFailure(kind, detail, usedKey)
+			// 标记当前 trial key 冷却
+			if rotatedKey := rt.proxy.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
+				rt.proxy.log("★ Trial限速→轮转: %s... → %s... (透传给IDE，下次请求用新key)",
+					usedKey[:minStr(12, len(usedKey))],
+					rotatedKey[:minStr(12, len(rotatedKey))])
+			} else {
+				rt.proxy.log("★ Trial限速，已标记冷却: %s... (透传给IDE)", usedKey[:minStr(12, len(usedKey))])
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			return resp, nil
+		}
 
 		if (!isExhausted && !isAuthFailure && !isRateLimited) || attempt >= rt.maxRetry {
 			if kind != upstreamFailureNone {
@@ -1128,7 +1306,10 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if rotatedKey := rt.proxy.rotateAfterAuthFailure(usedKey, detail); rotatedKey == "" {
 				refreshedJWT := rt.proxy.refreshJWTForKey(usedKey)
 				if len(refreshedJWT) > 0 {
-					newBody, replaced := ReplaceIdentityInBody(retryBody, []byte(usedKey), refreshedJWT)
+					rt.proxy.mu.RLock()
+					authFP := rt.proxy.keyFingerprint(usedKey)
+					rt.proxy.mu.RUnlock()
+					newBody, replaced := ReplaceIdentityInBody(retryBody, []byte(usedKey), refreshedJWT, false, authFP)
 					if replaced {
 						retryBody = newBody
 						req.Body = io.NopCloser(bytes.NewReader(newBody))
@@ -1156,17 +1337,17 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			rt.proxy.markRuntimeExhaustedAndRotate(usedKey, detail)
 		}
 
-		// ★ 有 convID 的已存在对话：限速/额度耗尽后不能用新号重试
-		// 新号没有该 conversation 的 Cascade session，切号重试必然 Invalid Cascade session
-		// 只标记切号供后续新对话使用，当前请求直接透传错误给 IDE
-		if convID != "" && (isExhausted || isRateLimited) {
-			rt.proxy.log("已有对话 %s... 的 key %s... %s，不切号重试（避免 Invalid Cascade session），透传给 IDE",
+		// ★ 有 convID 的已存在对话 + 限速冷却：不切号重试（保持粘性）
+		// 限速冷却是暂时的，120s 后自动恢复；切号会导致 Invalid Cascade session
+		if convID != "" && isRateLimited {
+			rt.proxy.log("已有对话 %s... 的 key %s... 限速冷却，保持粘性透传给 IDE",
 				convID[:minStr(8, len(convID))],
-				usedKey[:minStr(12, len(usedKey))],
-				kind.logLabel())
+				usedKey[:minStr(12, len(usedKey))])
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			return resp, nil
 		}
+		// ★ 有 convID + 额度耗尽：尝试用新 key 重试（key 不会自动恢复，必须迁移）
+		// pickPoolKeyForSession 会检测到 RuntimeExhausted 并分配新 key
 
 		// 用新号重新构造请求（仅无 convID 的新对话，或认证失败刷 JWT 重试）
 		var newKey string
@@ -1185,7 +1366,11 @@ func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		// 重新替换身份
-		newBody, replaced := ReplaceIdentityInBody(retryBody, []byte(newKey), newJWT)
+		rt.proxy.mu.RLock()
+		retryRandFP := rt.proxy.isTrialOrFreeKey(newKey)
+		retryFP := rt.proxy.keyFingerprint(newKey)
+		rt.proxy.mu.RUnlock()
+		newBody, replaced := ReplaceIdentityInBody(retryBody, []byte(newKey), newJWT, retryRandFP, retryFP)
 		if replaced {
 			retryBody = newBody
 			req.Body = io.NopCloser(bytes.NewReader(newBody))
@@ -1367,7 +1552,8 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 			p.sessionsMu.Unlock()
 		}
 	} else {
-		poolKey, poolJWT = p.pickPoolKeyAndJWT()
+		// ★ 首条消息(无 convID)使用 session 感知分配，而非固定 currentKey
+		poolKey, poolJWT = p.pickKeyForNewConversation()
 	}
 
 	if poolKey == "" || len(poolJWT) == 0 {
@@ -1382,11 +1568,20 @@ func (p *MitmProxy) handleRequest(req *http.Request, origHost string) {
 	}
 
 	// Replace identity in protobuf body
-	newBody, replaced := ReplaceIdentityInBody(bodyBytes, []byte(poolKey), poolJWT)
+	// ★ 每个 key 用独立的 session ID 和设备指纹（防 session 级限速）
+	p.mu.RLock()
+	randFP := p.isTrialOrFreeKey(poolKey)
+	fp := p.keyFingerprint(poolKey)
+	p.mu.RUnlock()
+	newBody, replaced := ReplaceIdentityInBody(bodyBytes, []byte(poolKey), poolJWT, randFP, fp)
 	if replaced {
 		req.Body = io.NopCloser(bytes.NewReader(newBody))
 		req.ContentLength = int64(len(newBody))
-		p.log("身份替换: %s key=%s...%s", pathTail, poolKey[:minStr(12, len(poolKey))], suffix3(poolKey))
+		sid := ""
+		if fp != nil {
+			sid = fp.SessionID[:minStr(8, len(fp.SessionID))]
+		}
+		p.log("身份替换: %s key=%s...%s sid=%s fp=%v", pathTail, poolKey[:minStr(12, len(poolKey))], suffix3(poolKey), sid, randFP)
 	} else {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
@@ -1538,6 +1733,12 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 					isExhausted = true
 					exhaustedDetail = detail
 					p.log("额度耗尽(buffered): %s key=%s... %s", pathTail, usedKey[:minStr(12, len(usedKey))], truncate(detail, 100))
+				case kind == upstreamFailureGlobalRateLimit && isBilling:
+					p.log("Trial限速(buffered): %s key=%s... (标记冷却，换号)", pathTail, usedKey[:minStr(12, len(usedKey))])
+					if rotatedKey := p.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
+						p.log("★ Trial限速立即轮转(buffered): %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+					}
+					p.recordUpstreamFailure(kind, detail, usedKey)
 				case kind == upstreamFailureRateLimit && isBilling:
 					p.log("限速(buffered): %s key=%s...", pathTail, usedKey[:minStr(12, len(usedKey))])
 					if rotatedKey := p.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
@@ -1586,6 +1787,12 @@ func (p *MitmProxy) handleResponse(resp *http.Response) {
 						if rotatedKey := p.markRuntimeExhaustedAndRotate(usedKey, detail); rotatedKey != "" {
 							p.log("★ 流式额度耗尽轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
 						}
+					case upstreamFailureGlobalRateLimit:
+						p.log("★ 流式Trial限速: %s key=%s... (标记冷却，换号)", pathTail, usedKey[:minStr(12, len(usedKey))])
+						if rotatedKey := p.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
+							p.log("★ 流式Trial限速轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
+						}
+						p.recordUpstreamFailure(kind, detail, usedKey)
 					case upstreamFailureRateLimit:
 						if rotatedKey := p.markRateLimitedAndRotate(usedKey, detail); rotatedKey != "" {
 							p.log("★ 流式限速轮转: %s... → %s...", usedKey[:minStr(12, len(usedKey))], rotatedKey[:minStr(12, len(rotatedKey))])
@@ -1885,9 +2092,155 @@ func (p *MitmProxy) sessionBindingCount(poolKey string) int {
 // excludeKey is skipped (e.g. the exhausted key being rotated away from).
 // Caller must hold p.mu (read).
 func (p *MitmProxy) leastConnectionsKey(excludeKey string) string {
+	globalBackoff := p.isGlobalTrialRateLimitActive()
 	bestKey := ""
 	bestCount := int(^uint(0) >> 1) // max int
 	bestReqs := int(^uint(0) >> 1)
+	var fallbackKey string // Trial key 备选（仅当无 Pro key 时使用）
+	var fallbackCount, fallbackReqs int
+	fallbackCount = int(^uint(0) >> 1)
+	fallbackReqs = int(^uint(0) >> 1)
+
+	candidateCount := 0
+	for _, k := range p.poolKeys {
+		if k == excludeKey {
+			continue
+		}
+		state := p.keyStates[k]
+		if state == nil || !state.isAvailable() {
+			p.log("leastConn: key=%s... 不可用(state=%v avail=%v)",
+				k[:minStr(12, len(k))], state != nil, state != nil && state.isAvailable())
+			continue
+		}
+		p.jwtLock.RLock()
+		hasJWT := len(state.JWT) > 0
+		p.jwtLock.RUnlock()
+		if !hasJWT {
+			p.log("leastConn: key=%s... 无JWT，跳过", k[:minStr(12, len(k))])
+			continue
+		}
+
+		candidateCount++
+		count := p.sessionBindingCount(k)
+		// 全局退避期间跳过 Trial/Free key，优先 Pro/Team
+		if globalBackoff && p.isTrialOrFreeKey(k) {
+			if count < fallbackCount || (count == fallbackCount && state.RequestCount < fallbackReqs) {
+				fallbackKey = k
+				fallbackCount = count
+				fallbackReqs = state.RequestCount
+			}
+			continue
+		}
+		if count < bestCount || (count == bestCount && state.RequestCount < bestReqs) {
+			bestKey = k
+			bestCount = count
+			bestReqs = state.RequestCount
+		}
+	}
+	p.log("leastConn: 候选=%d 总=%d best=%s(sessions=%d) exclude=%s globalBackoff=%v",
+		candidateCount, len(p.poolKeys),
+		func() string {
+			if bestKey == "" && fallbackKey == "" {
+				return "无"
+			}
+			k := bestKey
+			if k == "" {
+				k = fallbackKey
+			}
+			return k[:minStr(12, len(k))] + "..."
+		}(),
+		func() int {
+			if bestKey != "" {
+				return bestCount
+			}
+			if fallbackKey != "" {
+				return fallbackCount
+			}
+			return -1
+		}(),
+		func() string {
+			if excludeKey == "" {
+				return "无"
+			}
+			return excludeKey[:minStr(12, len(excludeKey))] + "..."
+		}(),
+		globalBackoff)
+	if bestKey == "" {
+		return fallbackKey // 无 Pro key 时降级到 Trial
+	}
+	return bestKey
+}
+
+// pickKeyForNewConversation 为首条消息（无 convID）选择 pool key。
+// 使用 leastConnectionsKeyWithPending 在号池间均匀分配新对话，并将选用的 key 推入
+// pendingNewConvKeys 队列，以便第二条消息（带 convID）能绑定到同一个 key。
+func (p *MitmProxy) pickKeyForNewConversation() (string, []byte) {
+	// ★ 持有 pendingNewConvMu 全程：确保 "统计 pending → 选 key → push pending" 原子化，
+	// 防止两个并发新对话都看到 pending=0 而选到同一个 key。
+	p.pendingNewConvMu.Lock()
+
+	cutoff := time.Now().Add(-pendingNewConvMaxAge)
+	// 清理过期条目
+	trimIdx := 0
+	for i, e := range p.pendingNewConvKeys {
+		if !e.At.Before(cutoff) {
+			trimIdx = i
+			break
+		}
+		if i == len(p.pendingNewConvKeys)-1 {
+			trimIdx = len(p.pendingNewConvKeys) // 全部过期
+		}
+	}
+	if trimIdx > 0 {
+		p.pendingNewConvKeys = p.pendingNewConvKeys[trimIdx:]
+	}
+	pendingCounts := make(map[string]int)
+	for _, e := range p.pendingNewConvKeys {
+		pendingCounts[e.PoolKey]++
+	}
+
+	// 在 sessionsMu + p.mu 下选最少连接 key（计入 pending 虚拟会话）
+	p.sessionsMu.RLock()
+	p.mu.RLock()
+	key := p.leastConnectionsKeyWithPending("", pendingCounts)
+	p.mu.RUnlock()
+	p.sessionsMu.RUnlock()
+
+	if key == "" {
+		p.pendingNewConvMu.Unlock()
+		return p.pickPoolKeyAndJWT()
+	}
+
+	jwt := p.usableJWTForKey(key)
+	if len(jwt) == 0 {
+		p.pendingNewConvMu.Unlock()
+		return p.pickPoolKeyAndJWT()
+	}
+
+	// 原子 push pending（仍在 pendingNewConvMu 锁内）
+	p.pendingNewConvKeys = append(p.pendingNewConvKeys, pendingKeyEntry{PoolKey: key, At: time.Now()})
+	if len(p.pendingNewConvKeys) > pendingNewConvMaxSize {
+		p.pendingNewConvKeys = p.pendingNewConvKeys[len(p.pendingNewConvKeys)-pendingNewConvMaxSize:]
+	}
+	savedPendingCount := pendingCounts[key] + 1
+	p.pendingNewConvMu.Unlock()
+
+	p.log("新对话分配(pending): key=%s... (pending=%d sessions=%d)",
+		key[:minStr(12, len(key))], savedPendingCount, p.sessionBindingCountSafe(key))
+	return key, jwt
+}
+
+// leastConnectionsKeyWithPending 与 leastConnectionsKey 类似，但额外考虑 pending 队列中的虚拟会话数。
+// Caller must hold p.mu (read) AND sessionsMu (read).
+func (p *MitmProxy) leastConnectionsKeyWithPending(excludeKey string, pendingCounts map[string]int) string {
+	globalBackoff := p.isGlobalTrialRateLimitActive()
+	bestKey := ""
+	bestCount := int(^uint(0) >> 1) // max int
+	bestReqs := int(^uint(0) >> 1)
+	var fallbackKey string
+	var fallbackCount, fallbackReqs int
+	fallbackCount = int(^uint(0) >> 1)
+	fallbackReqs = int(^uint(0) >> 1)
 
 	for _, k := range p.poolKeys {
 		if k == excludeKey {
@@ -1897,7 +2250,6 @@ func (p *MitmProxy) leastConnectionsKey(excludeKey string) string {
 		if state == nil || !state.isAvailable() {
 			continue
 		}
-		// Check JWT availability
 		p.jwtLock.RLock()
 		hasJWT := len(state.JWT) > 0
 		p.jwtLock.RUnlock()
@@ -1905,14 +2257,49 @@ func (p *MitmProxy) leastConnectionsKey(excludeKey string) string {
 			continue
 		}
 
-		count := p.sessionBindingCount(k)
+		count := p.sessionBindingCount(k) + pendingCounts[k]
+		if globalBackoff && p.isTrialOrFreeKey(k) {
+			if count < fallbackCount || (count == fallbackCount && state.RequestCount < fallbackReqs) {
+				fallbackKey = k
+				fallbackCount = count
+				fallbackReqs = state.RequestCount
+			}
+			continue
+		}
 		if count < bestCount || (count == bestCount && state.RequestCount < bestReqs) {
 			bestKey = k
 			bestCount = count
 			bestReqs = state.RequestCount
 		}
 	}
+	if bestKey == "" {
+		return fallbackKey
+	}
 	return bestKey
+}
+
+// sessionBindingCountSafe 线程安全版 sessionBindingCount（内部加锁 sessionsMu）。
+func (p *MitmProxy) sessionBindingCountSafe(poolKey string) int {
+	p.sessionsMu.RLock()
+	defer p.sessionsMu.RUnlock()
+	return p.sessionBindingCount(poolKey)
+}
+
+// popPendingNewConvKey 从 pending 队列弹出最旧的未过期条目（FIFO），返回 pool key。
+// 返回 "" 表示队列为空或全部过期。
+func (p *MitmProxy) popPendingNewConvKey() string {
+	p.pendingNewConvMu.Lock()
+	defer p.pendingNewConvMu.Unlock()
+
+	cutoff := time.Now().Add(-pendingNewConvMaxAge)
+	for len(p.pendingNewConvKeys) > 0 {
+		entry := p.pendingNewConvKeys[0]
+		p.pendingNewConvKeys = p.pendingNewConvKeys[1:]
+		if !entry.At.Before(cutoff) {
+			return entry.PoolKey
+		}
+	}
+	return ""
 }
 
 // pickPoolKeyForSession selects a pool key for a specific conversation.
@@ -1937,12 +2324,13 @@ func (p *MitmProxy) pickPoolKeyForSession(convID string, excludeKeys ...string) 
 			p.mu.RLock()
 			state := p.keyStates[binding.PoolKey]
 			available := state != nil && state.isAvailable()
-			// ★ 会话粘性保护：已有 conversation 绑定的 key 始终保持粘性
-			// 即使额度耗尽/限速冷却也不迁移 — 迁移后新号没有该 conversation 的 session，
-			// 必然 Invalid Cascade session。额度耗尽只影响新对话的 key 分配。
-			// 唯一放弃粘性的情况：key 被永久禁用(Disabled)
+			// ★ 会话粘性保护（仅限速冷却）：
+			// 限速冷却中保持粘性 — 迁移后新号没有该 conversation 的 Cascade session。
+			// ★ 额度耗尽(RuntimeExhausted) 不保持粘性 — key 不会自动恢复，
+			// 必须迁移到新 key（虽然可能 Invalid Cascade session，但总比永远卡死好）。
 			stickyOverride := false
-			if !available && state != nil && !state.Disabled {
+			if !available && state != nil && !state.Disabled && !state.RuntimeExhausted {
+				// 仅限速冷却中保持粘性
 				stickyOverride = true
 			}
 			p.mu.RUnlock()
@@ -1954,14 +2342,9 @@ func (p *MitmProxy) pickPoolKeyForSession(convID string, excludeKeys ...string) 
 					binding.RequestCount++
 					p.sessionsMu.Unlock()
 					if stickyOverride {
-						reason := "限速冷却"
-						if state != nil && state.RuntimeExhausted {
-							reason = "额度耗尽"
-						}
-						p.log("会话 %s... 绑定的 key %s... %s中，保持粘性（避免迁移）",
+						p.log("会话 %s... 绑定的 key %s... 限速冷却中，保持粘性（避免迁移）",
 							convID[:minStr(8, len(convID))],
-							binding.PoolKey[:minStr(12, len(binding.PoolKey))],
-							reason)
+							binding.PoolKey[:minStr(12, len(binding.PoolKey))])
 					}
 					return binding.PoolKey, jwt
 				}
@@ -1973,14 +2356,30 @@ func (p *MitmProxy) pickPoolKeyForSession(convID string, excludeKeys ...string) 
 			binding.PoolKey[:minStr(12, len(binding.PoolKey))])
 	}
 
-	// Assign new key using least-connections, excluding specified keys
+	// ★ 优先从 pending 队列弹出首条消息使用的 key（保证首/二条消息用同一 key）
 	excludeKey := ""
 	if len(excludeKeys) > 0 {
 		excludeKey = excludeKeys[0]
 	}
-	p.mu.RLock()
-	newKey := p.leastConnectionsKey(excludeKey)
-	p.mu.RUnlock()
+	newKey := ""
+	if pendingKey := p.popPendingNewConvKey(); pendingKey != "" && pendingKey != excludeKey {
+		p.mu.RLock()
+		state := p.keyStates[pendingKey]
+		usable := state != nil && (state.isAvailable() || !state.Disabled)
+		p.mu.RUnlock()
+		if usable {
+			newKey = pendingKey
+			p.log("新会话绑定(pending匹配): conv=%s... → key=%s...",
+				convID[:minStr(8, len(convID))], pendingKey[:minStr(12, len(pendingKey))])
+		}
+	}
+
+	// Fallback: least-connections（迁移场景或 pending 无匹配时）
+	if newKey == "" {
+		p.mu.RLock()
+		newKey = p.leastConnectionsKey(excludeKey)
+		p.mu.RUnlock()
+	}
 
 	// 如果排除后没找到，不排除再试一次
 	if newKey == "" && excludeKey != "" {
@@ -2355,16 +2754,27 @@ func (p *MitmProxy) prefetchSpecificJWTs(keys []string, force bool) {
 	} else {
 		p.log("开始预取 %d 个 key 的 JWT...", len(keys))
 	}
+	// ★ 并行预取，限制并发数避免上游限流
+	const maxConcurrent = 5
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
 	for _, key := range keys {
 		if !force && len(p.jwtBytesForKey(key)) > 0 && !p.jwtNeedsRefresh(key) {
 			continue
 		}
-		if force {
-			_ = p.refreshJWTForKey(key)
-			continue
-		}
-		_ = p.ensureJWTForKey(key)
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(k string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if force {
+				_ = p.refreshJWTForKey(k)
+			} else {
+				_ = p.ensureJWTForKey(k)
+			}
+		}(key)
 	}
+	wg.Wait()
 }
 
 func (p *MitmProxy) prefetchJWTs() {
@@ -2372,27 +2782,36 @@ func (p *MitmProxy) prefetchJWTs() {
 	if len(keys) == 0 {
 		return
 	}
-	if len(p.jwtBytesForKey(keys[0])) > 0 && !p.jwtNeedsRefresh(keys[0]) {
-		p.markJWTReady()
-		return
+	// ★ 先检查是否至少有一个 key 已有 JWT（标记 ready），再预取其余
+	for _, k := range keys {
+		if len(p.jwtBytesForKey(k)) > 0 {
+			p.markJWTReady()
+			break
+		}
 	}
 	p.prefetchSpecificJWTs(keys, false)
+	p.markJWTReady() // 预取完毕后确保标记 ready
 }
 
 func (p *MitmProxy) jwtRefreshKeys() []string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if len(p.poolKeys) == 0 || p.currentIdx < 0 || p.currentIdx >= len(p.poolKeys) {
+	if len(p.poolKeys) == 0 {
 		return nil
 	}
-	key := p.poolKeys[p.currentIdx]
-	if key == "" {
-		return nil
+	// ★ 返回所有可用(非耗尽/非禁用) key，确保每个 key 都有 JWT 以支持 session 分配
+	var keys []string
+	for _, k := range p.poolKeys {
+		if k == "" {
+			continue
+		}
+		state := p.keyStates[k]
+		if state != nil && (state.RuntimeExhausted || state.Disabled) {
+			continue
+		}
+		keys = append(keys, k)
 	}
-	if state := p.keyStates[key]; state != nil && state.RuntimeExhausted {
-		return nil
-	}
-	return []string{key}
+	return keys
 }
 
 func (p *MitmProxy) refreshJWTsOnce() {
@@ -2414,7 +2833,7 @@ func (p *MitmProxy) jwtRefreshLoop() {
 		case <-p.stopCh:
 			return
 		case <-jwtTicker.C:
-			p.log("定时刷新当前 key 的 JWT...")
+			p.log("定时刷新所有号池 key 的 JWT...")
 			p.refreshJWTsOnce()
 		case <-sessionTicker.C:
 			p.cleanExpiredSessions()
@@ -2452,6 +2871,10 @@ func (k upstreamFailureKind) logLabel() string {
 		return "权限"
 	case upstreamFailureGRPC:
 		return "gRPC"
+	case upstreamFailureGlobalRateLimit:
+		return "全局限速"
+	case upstreamFailureUnavailable:
+		return "上游不可达"
 	default:
 		return "未知"
 	}
@@ -2534,6 +2957,9 @@ func classifyUpstreamFailure(grpcStatus, grpcMessage, bodyText string) (upstream
 		strings.Contains(combined, "api server wire error: permission denied") ||
 		strings.Contains(combined, "permission_denied") {
 		return upstreamFailureAuth, formatUpstreamFailureDetail(status, msg, bodyText)
+	}
+	if status == "14" || strings.Contains(combined, "provider unreachable") || strings.Contains(combined, "model provider") {
+		return upstreamFailureUnavailable, formatUpstreamFailureDetail(status, msg, bodyText)
 	}
 	if status == "13" || strings.Contains(combined, "internal server error") || strings.Contains(combined, "error number 13") {
 		return upstreamFailureInternal, formatUpstreamFailureDetail(status, msg, bodyText)

@@ -1,5 +1,4 @@
 import { models } from '../../wailsjs/go/models'
-import { PURE_MITM_ONLY } from './appMode'
 
 /** 与 backend/utils/plan_tone.go PlanTone 顺序一致，用于排序与全选判定 */
 export const SWITCH_PLAN_FILTER_TONES = [
@@ -36,9 +35,6 @@ export const switchPlanFilterOptions: Array<{ value: string; label: string }> = 
 /** 与 backend/models/settings.go + wailsjs models.Settings 对齐 */
 export function createDefaultSettings(): models.Settings {
   return new models.Settings({
-    proxy_enabled: false,
-    proxy_url: '',
-    windsurf_path: '',
     concurrent_limit: 5,
     auto_refresh_tokens: false,
     auto_refresh_quotas: false,
@@ -47,13 +43,8 @@ export function createDefaultSettings(): models.Settings {
     auto_switch_plan_filter: 'all',
     auto_switch_on_quota_exhausted: true,
     quota_hot_poll_seconds: 12,
-    restart_windsurf_after_switch: true,
     minimize_to_tray: false,
-    show_desktop_toolbar: false,
     silent_start: false,
-    mitm_only: PURE_MITM_ONLY,
-    mitm_tun_mode: false,
-    mitm_proxy_enabled: false,
     openai_relay_enabled: false,
     openai_relay_port: 8787,
     openai_relay_secret: '',
@@ -73,9 +64,6 @@ export function normalizeSettings(raw: unknown): models.Settings {
   }
   const s = raw as Record<string, unknown>
   return new models.Settings({
-    proxy_enabled: Boolean(s.proxy_enabled),
-    proxy_url: String(s.proxy_url ?? ''),
-    windsurf_path: String(s.windsurf_path ?? ''),
     concurrent_limit: Math.max(1, Number(s.concurrent_limit) || 5),
     auto_refresh_tokens: Boolean(s.auto_refresh_tokens),
     auto_refresh_quotas: Boolean(s.auto_refresh_quotas),
@@ -87,14 +75,8 @@ export function normalizeSettings(raw: unknown): models.Settings {
     quota_hot_poll_seconds: clampHotPollSeconds(
       'quota_hot_poll_seconds' in s ? Number(s.quota_hot_poll_seconds) : 12,
     ),
-    restart_windsurf_after_switch:
-      'restart_windsurf_after_switch' in s ? Boolean(s.restart_windsurf_after_switch) : true,
     minimize_to_tray: Boolean(s.minimize_to_tray),
-    show_desktop_toolbar: Boolean(s.show_desktop_toolbar),
     silent_start: 'silent_start' in s ? Boolean(s.silent_start) : base.silent_start,
-    mitm_only: 'mitm_only' in s ? Boolean(s.mitm_only) : base.mitm_only,
-    mitm_tun_mode: 'mitm_tun_mode' in s ? Boolean(s.mitm_tun_mode) : base.mitm_tun_mode,
-    mitm_proxy_enabled: 'mitm_proxy_enabled' in s ? Boolean(s.mitm_proxy_enabled) : base.mitm_proxy_enabled,
     openai_relay_enabled: 'openai_relay_enabled' in s ? Boolean(s.openai_relay_enabled) : base.openai_relay_enabled,
     openai_relay_port: Math.max(1, Math.min(65535, Number(s.openai_relay_port) || 8787)),
     openai_relay_secret: String(s.openai_relay_secret ?? ''),
@@ -166,9 +148,6 @@ export function clampHotPollSeconds(sec: number): number {
 
 /** 与后端 JSON 字段一致，便于 reactive + v-model */
 export type SettingsForm = {
-  proxy_enabled: boolean
-  proxy_url: string
-  windsurf_path: string
   concurrent_limit: number
   auto_refresh_tokens: boolean
   auto_refresh_quotas: boolean
@@ -180,20 +159,10 @@ export type SettingsForm = {
   auto_switch_on_quota_exhausted: boolean
   /** 当前活跃席位快查间隔（秒），用尽轮换依赖此轮询 */
   quota_hot_poll_seconds: number
-  /** 旧本地-auth 切换链路的兼容字段，纯 MITM 前端不再暴露 */
-  restart_windsurf_after_switch: boolean
   /** 关闭窗口时最小化到系统托盘 */
   minimize_to_tray: boolean
-  /** 桌面小横条：置顶显示当前账号与额度 */
-  show_desktop_toolbar: boolean
   /** 启动时不显示主窗口（托盘仍可打开） */
   silent_start: boolean
-  /** 纯 MITM 工作模式 */
-  mitm_only: boolean
-  /** 在 MITM 面板展示 TUN/全局代理说明（本应用不内置 TUN） */
-  mitm_tun_mode: boolean
-  /** 无界面服务/daemon 启动时自动拉起 MITM */
-  mitm_proxy_enabled: boolean
   /** OpenAI 兼容中转服务器 */
   openai_relay_enabled: boolean
   openai_relay_port: number
@@ -214,9 +183,6 @@ export type SettingsForm = {
 
 export function settingsToForm(s: models.Settings): SettingsForm {
   return {
-    proxy_enabled: s.proxy_enabled,
-    proxy_url: s.proxy_url || '',
-    windsurf_path: s.windsurf_path || '',
     concurrent_limit: s.concurrent_limit || 5,
     auto_refresh_tokens: s.auto_refresh_tokens,
     auto_refresh_quotas: s.auto_refresh_quotas,
@@ -225,13 +191,8 @@ export function settingsToForm(s: models.Settings): SettingsForm {
     auto_switch_plan_filter: normalizeSwitchPlanFilter(s.auto_switch_plan_filter),
     auto_switch_on_quota_exhausted: s.auto_switch_on_quota_exhausted !== false,
     quota_hot_poll_seconds: clampHotPollSeconds(s.quota_hot_poll_seconds ?? 12),
-    restart_windsurf_after_switch: s.restart_windsurf_after_switch !== false,
     minimize_to_tray: s.minimize_to_tray === true,
-    show_desktop_toolbar: s.show_desktop_toolbar === true,
     silent_start: s.silent_start === true,
-    mitm_only: s.mitm_only === true,
-    mitm_tun_mode: s.mitm_tun_mode === true,
-    mitm_proxy_enabled: s.mitm_proxy_enabled === true,
     openai_relay_enabled: s.openai_relay_enabled === true,
     openai_relay_port: Math.max(1, Number(s.openai_relay_port) || 8787),
     openai_relay_secret: String(s.openai_relay_secret ?? ''),
@@ -246,9 +207,6 @@ export function settingsToForm(s: models.Settings): SettingsForm {
 
 export function formToSettings(form: SettingsForm): models.Settings {
   return new models.Settings({
-    proxy_enabled: form.proxy_enabled,
-    proxy_url: form.proxy_url.trim(),
-    windsurf_path: form.windsurf_path.trim(),
     concurrent_limit: Math.max(1, Math.round(form.concurrent_limit) || 5),
     auto_refresh_tokens: form.auto_refresh_tokens,
     auto_refresh_quotas: form.auto_refresh_quotas,
@@ -257,13 +215,8 @@ export function formToSettings(form: SettingsForm): models.Settings {
     auto_switch_plan_filter: normalizeSwitchPlanFilter(form.auto_switch_plan_filter),
     auto_switch_on_quota_exhausted: form.auto_switch_on_quota_exhausted,
     quota_hot_poll_seconds: clampHotPollSeconds(form.quota_hot_poll_seconds),
-    restart_windsurf_after_switch: form.restart_windsurf_after_switch,
     minimize_to_tray: form.minimize_to_tray,
-    show_desktop_toolbar: form.show_desktop_toolbar,
     silent_start: form.silent_start,
-    mitm_only: form.mitm_only,
-    mitm_tun_mode: form.mitm_tun_mode,
-    mitm_proxy_enabled: form.mitm_proxy_enabled,
     openai_relay_enabled: form.openai_relay_enabled,
     openai_relay_port: Math.max(1, Math.min(65535, Math.round(form.openai_relay_port) || 8787)),
     openai_relay_secret: (form.openai_relay_secret ?? '').trim(),

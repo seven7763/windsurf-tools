@@ -17,8 +17,6 @@ type App struct {
 	ctx                    context.Context
 	store                  *store.Store
 	windsurfSvc            *services.WindsurfService
-	switchSvc              *services.SwitchService
-	patchSvc               *services.PatchService
 	mitmProxy              *services.MitmProxy
 	openaiRelay            *services.OpenAIRelay
 	usageTracker           *services.UsageTracker
@@ -31,8 +29,7 @@ type App struct {
 	quotaRefreshRunMu      sync.Mutex
 	mu                     sync.Mutex
 	cleanupMitmOnExitFn    func() error
-	closeDesktopLogFn      func()
-	activateExistingAppFn  func(showToolbar bool)
+	activateExistingAppFn  func()
 	traySupportedFn        func() bool
 	// silentFromFlag 由 main 在解析到 --silent 时设置，与 settings.silent_start 二选一即可触发静默启动
 	silentFromFlag bool
@@ -49,22 +46,16 @@ func (a *App) initBackend() error {
 		return fmt.Errorf("存储初始化失败: %w", err)
 	}
 	a.store = s
-	settings := a.store.GetSettings()
-	proxyURL := ""
-	if settings.ProxyEnabled && settings.ProxyURL != "" {
-		proxyURL = settings.ProxyURL
-	}
-	a.windsurfSvc = services.NewWindsurfService(proxyURL)
-	a.switchSvc = services.NewSwitchService()
-	a.patchSvc = services.NewPatchService()
+	a.windsurfSvc = services.NewWindsurfService("")
 	// ── 调试日志 ──
+	settings := a.store.GetSettings()
 	utils.InitDebugLogger(s.DataDir(), settings.DebugLog)
 	// ── 创建跨服务的用量跟踪器 ──
 	a.usageTracker = services.NewUsageTracker(s.DataDir())
 
 	a.mitmProxy = services.NewMitmProxy(a.windsurfSvc, func(msg string) {
 		utils.DLog("%s", msg)
-	}, proxyURL, a.usageTracker)
+	}, "", a.usageTracker)
 	a.mitmProxy.SetOnKeyExhausted(func(apiKey string) {
 		utils.DLog("[回调] onKeyExhausted 触发: key=%s...", apiKey[:min(12, len(apiKey))])
 		accID := findAccountIDForMITMAPIKey(a.store.GetAllAccounts(), apiKey)
@@ -77,19 +68,11 @@ func (a *App) initBackend() error {
 		// ★ 立即触发切号（之前只刷额度不切号，导致 IDE 继续用耗尽账号）
 		s := a.store.GetSettings()
 		if s.AutoSwitchOnQuotaExhausted {
-			utils.DLog("[回调] onKeyExhausted: AutoSwitch=true mitmOnly=%v → 立即切号", s.MitmOnly)
-			if s.MitmOnly {
-				if next, err := a.rotateMitmToNextAvailable(accID, s.AutoSwitchPlanFilter); err != nil {
-					utils.DLog("[回调] onKeyExhausted: MITM轮换失败: %v", err)
-				} else {
-					utils.DLog("[回调] onKeyExhausted: MITM轮换成功 → %s", next.Email)
-				}
+			utils.DLog("[回调] onKeyExhausted: AutoSwitch=true → 立即MITM轮换")
+			if next, err := a.rotateMitmToNextAvailable(accID, s.AutoSwitchPlanFilter); err != nil {
+				utils.DLog("[回调] onKeyExhausted: MITM轮换失败: %v", err)
 			} else {
-				if next, err := a.autoSwitchToNext(accID, s.AutoSwitchPlanFilter); err != nil {
-					utils.DLog("[回调] onKeyExhausted: AutoSwitchToNext失败: %v", err)
-				} else {
-					utils.DLog("[回调] onKeyExhausted: AutoSwitchToNext成功 → %s", next)
-				}
+				utils.DLog("[回调] onKeyExhausted: MITM轮换成功 → %s", next.Email)
 			}
 		} else {
 			utils.DLog("[回调] onKeyExhausted: AutoSwitchOnQuotaExhausted=false，不切号")
@@ -105,7 +88,7 @@ func (a *App) initBackend() error {
 	})
 	a.openaiRelay = services.NewOpenAIRelay(a.mitmProxy, func(msg string) {
 		utils.DLog("%s", msg)
-	}, proxyURL, a.usageTracker)
+	}, "", a.usageTracker)
 	a.openaiRelay.SetOnSuccess(func(apiKey string) {
 		accounts := a.store.GetAllAccounts()
 		accID := findAccountIDForMITMAPIKey(accounts, apiKey)
@@ -132,9 +115,6 @@ func (a *App) shouldStartHidden() bool {
 		return a.silentFromFlag && a.supportsTray()
 	}
 	settings := a.store.GetSettings()
-	if settings.ShowDesktopToolbar {
-		return a.silentFromFlag || settings.SilentStart
-	}
 	if !a.supportsTray() {
 		return false
 	}
@@ -143,21 +123,8 @@ func (a *App) shouldStartHidden() bool {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	logPath, closeLog, logErr := setupDesktopRuntimeLogging()
-	if closeLog != nil {
-		a.closeDesktopLogFn = closeLog
-	}
-	if logErr != nil {
-		log.Printf("[WindsurfTools] desktop log setup: %v", logErr)
-	} else {
-		log.Printf("[WindsurfTools] desktop session start: %s", logPath)
-	}
 	if err := a.initBackend(); err != nil {
 		log.Printf("[WindsurfTools] desktop init: %v", err)
-		if a.closeDesktopLogFn != nil {
-			a.closeDesktopLogFn()
-			a.closeDesktopLogFn = nil
-		}
 		log.Fatalf("%v", err)
 	}
 	log.Printf("[WindsurfTools] desktop backend initialized")
@@ -167,18 +134,12 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		log.Printf("[WindsurfTools] tray unsupported on current platform")
 	}
-	settings := a.store.GetSettings()
 	if a.shouldStartHidden() {
 		log.Printf("[WindsurfTools] desktop start hidden")
-		if settings.ShowDesktopToolbar {
-			// 静默启动但启用桌面工具栏：先隐藏避免闪全屏主界面，前端就绪后会 ApplyToolbarLayout + WindowShow 显示小窗
+		go func() {
+			time.Sleep(280 * time.Millisecond)
 			runtime.WindowHide(a.ctx)
-		} else {
-			go func() {
-				time.Sleep(280 * time.Millisecond)
-				runtime.WindowHide(a.ctx)
-			}()
-		}
+		}()
 	} else {
 		log.Printf("[WindsurfTools] desktop main window visible")
 	}
@@ -197,8 +158,4 @@ func (a *App) shutdown(ctx context.Context) {
 		a.openaiRelay.Stop()
 	}
 	a.cleanupMitmEnvironment()
-	if a.closeDesktopLogFn != nil {
-		a.closeDesktopLogFn()
-		a.closeDesktopLogFn = nil
-	}
 }

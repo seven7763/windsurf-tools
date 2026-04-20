@@ -7,70 +7,8 @@ import (
 	"sync"
 	"time"
 	"windsurf-tools-wails/backend/models"
-	"windsurf-tools-wails/backend/services"
 	"windsurf-tools-wails/backend/utils"
 )
-
-// ═══════════════════════════════════════
-// 旧本地-auth 切号兼容逻辑（当前纯 MITM 前端不再直接暴露）
-// ═══════════════════════════════════════
-
-// autoSwitchToNext 切到下一可用账号。planFilter：all 不限制；否则为 PlanTone 单值或逗号分隔多选（如 trial,pro）
-func (a *App) autoSwitchToNext(currentID string, planFilter string) (string, error) {
-	accounts := a.store.GetAllAccounts()
-	candidates := orderedSwitchCandidates(accounts, currentID, planFilter)
-	utils.DLog("[切号] AutoSwitchToNext: currentID=%s filter=%s 号池=%d 候选=%d", currentID[:min(8, len(currentID))], planFilter, len(accounts), len(candidates))
-	if len(candidates) == 0 {
-		f := strings.TrimSpace(strings.ToLower(planFilter))
-		if f != "" && f != "all" {
-			return "", fmt.Errorf("在「%s」计划筛选下没有仍有剩余额度的可切换账号", planFilter)
-		}
-		return "", fmt.Errorf("没有仍有剩余额度的可切换账号（号池可能均已用尽或未同步额度）")
-	}
-
-	// ★ 预热：并行刷新 top N 候选的 JWT + 额度，确保切号目标数据新鲜
-	a.prewarmCandidates(candidates, 3)
-
-	// 预热已将最新凭证+额度写入 store，重读避免 prepareAccountForUsage 重复调用 API
-	freshAccounts := a.store.GetAllAccounts()
-	freshMap := make(map[string]models.Account, len(freshAccounts))
-	for _, fa := range freshAccounts {
-		freshMap[fa.ID] = fa
-	}
-
-	var lastErr error
-	for _, acc := range candidates {
-		if fresh, ok := freshMap[acc.ID]; ok {
-			acc = fresh
-		}
-		prepared, err := a.prepareAccountForUsage(acc)
-		if err != nil {
-			utils.DLog("[切号] AutoSwitch 跳过 %s: %v", acc.Email, err)
-			lastErr = err
-			continue
-		}
-		if err := a.switchSvc.SwitchAccount(prepared.Token, prepared.Email); err != nil {
-			utils.DLog("[切号] AutoSwitch 写入auth失败 %s: %v", prepared.Email, err)
-			lastErr = err
-			continue
-		}
-		// ★ 同步本地 codeium config + MITM 代理
-		if prepared.WindsurfAPIKey != "" {
-			if err := services.InjectCodeiumConfig(prepared.WindsurfAPIKey); err != nil {
-				utils.DLog("[切号] 同步 codeium config 失败: %v", err)
-			}
-			a.mitmProxy.SwitchToKey(prepared.WindsurfAPIKey)
-		}
-		utils.DLog("[切号] AutoSwitch 成功切换到 %s (plan=%s daily=%s weekly=%s)", prepared.Email, prepared.PlanName, prepared.DailyRemaining, prepared.WeeklyRemaining)
-		go a.applyPostWindsurfSwitch()
-		return prepared.Email, nil
-	}
-
-	if lastErr != nil {
-		return "", lastErr
-	}
-	return "", fmt.Errorf("没有可切换的账号")
-}
 
 // prewarmCandidates 并行预热 top N 候选账号：刷新JWT + 实时查额度，将结果写入 store。
 func (a *App) prewarmCandidates(candidates []models.Account, maxN int) {
@@ -101,27 +39,6 @@ func (a *App) prewarmCandidates(candidates []models.Account, maxN int) {
 		}(candidates[i])
 	}
 	wg.Wait()
-}
-
-// applyPostWindsurfSwitch 写入 auth 后：尝试协议刷新；若开启设置则重启 Windsurf（运行中 IDE 会缓存 JWT，仅改文件通常不会立即换账号）。
-func (a *App) applyPostWindsurfSwitch() {
-	settings := a.store.GetSettings()
-	utils.DLog("[切号] applyPostSwitch: TryOpenWindsurfRefreshURIs...")
-	a.switchSvc.TryOpenWindsurfRefreshURIs()
-	if !settings.RestartWindsurfAfterSwitch {
-		utils.DLog("[切号] applyPostSwitch: RestartWindsurfAfterSwitch=false, 跳过重启")
-		return
-	}
-	root := strings.TrimSpace(settings.WindsurfPath)
-	if root == "" {
-		if p, err := a.patchSvc.FindWindsurfPath(); err == nil {
-			root = p
-		}
-	}
-	utils.DLog("[切号] applyPostSwitch: 重启 Windsurf (root=%s)", root)
-	if err := a.patchSvc.RestartWindsurfFromInstall(root); err != nil {
-		utils.DLog("[切号] applyPostSwitch: 重启失败: %v", err)
-	}
 }
 
 func hasSwitchCredentials(acc *models.Account) bool {
@@ -346,13 +263,7 @@ func (a *App) rotateMitmToNextAvailable(currentID string, planFilter string) (mo
 			lastErr = fmt.Errorf("MITM 代理未找到目标 API Key")
 			continue
 		}
-		if err := a.syncMitmLocalAuth(prepared); err != nil {
-			utils.DLog("[切号] rotateMitm 同步本地 auth 失败 %s: %v", prepared.Email, err)
-			lastErr = err
-			continue
-		}
-		utils.DLog("[切号] rotateMitm 同步本地 auth 成功: %s", prepared.Email)
-		go a.applyPostWindsurfSwitch()
+		utils.DLog("[切号] rotateMitm 成功切换到 %s", prepared.Email)
 		return prepared, nil
 	}
 	if lastErr != nil {

@@ -288,25 +288,36 @@ func TestBuildGetChatMessageRequestUsesConnectProtocol(t *testing.T) {
 	if got := req.Header.Get("Authorization"); got != "Bearer jwt-a" {
 		t.Fatalf("Authorization = %q, want %q", got, "Bearer jwt-a")
 	}
-	if got := req.Header.Get("User-Agent"); got != "connect-es/1.6.1" {
-		t.Fatalf("User-Agent = %q, want %q", got, "connect-es/1.6.1")
+	if got := req.Header.Get("User-Agent"); got != "connect-go/1.18.1 (go1.26.1)" {
+		t.Fatalf("User-Agent = %q, want connect-go/1.18.1 (go1.26.1)", got)
 	}
-	if got := req.Header.Get("X-Client-Name"); got != WindsurfAppName {
-		t.Fatalf("X-Client-Name = %q, want %q", got, WindsurfAppName)
+	// ★ 真实 IDE 抓包里**不带** X-Client-Name / X-Client-Version（capture 2026-04-18 确认）。
+	// 多余的客户端自识别 header 反而是 fingerprint 风险，保持空以对齐 IDE。
+	if got := req.Header.Get("X-Client-Name"); got != "" {
+		t.Fatalf("X-Client-Name = %q, want empty (IDE 不发送该头)", got)
 	}
-	if got := req.Header.Get("X-Client-Version"); got != WindsurfVersion {
-		t.Fatalf("X-Client-Version = %q, want %q", got, WindsurfVersion)
+	if got := req.Header.Get("X-Client-Version"); got != "" {
+		t.Fatalf("X-Client-Version = %q, want empty (IDE 不发送该头)", got)
 	}
 	if got := req.Header.Get("Te"); got != "" {
 		t.Fatalf("Te = %q, want empty for Connect requests", got)
 	}
 
+	// ★ IDE 真实行为：Connect envelope 帧内 gzip 压缩（flag=0x01）。
+	if got := req.Header.Get("Connect-Content-Encoding"); got != "gzip" {
+		t.Fatalf("Connect-Content-Encoding = %q, want gzip", got)
+	}
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		t.Fatalf("ReadAll(req.Body) error = %v", err)
 	}
-	if string(body) != string(payload) {
-		t.Fatalf("body = %x, want %x", body, payload)
+	if len(body) < 5 || body[0] != 0x01 {
+		t.Fatalf("body must start with compressed envelope flag 0x01, got first byte %x", body[:min(5, len(body))])
+	}
+	// envelope 长度字段应等于 body 剩余长度
+	declared := uint32(body[1])<<24 | uint32(body[2])<<16 | uint32(body[3])<<8 | uint32(body[4])
+	if int(declared) != len(body)-5 {
+		t.Fatalf("envelope length mismatch: declared=%d actual=%d", declared, len(body)-5)
 	}
 }
 

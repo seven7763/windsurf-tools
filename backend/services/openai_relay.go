@@ -26,8 +26,8 @@ type OpenAIRelay struct {
 	listener     net.Listener
 	running      bool
 	port         int
-	secret       string         // Bearer token 鉴权
-	proxy        *MitmProxy     // 复用账号池
+	secret       string     // Bearer token 鉴权
+	proxy        *MitmProxy // 复用账号池
 	logFn        func(string)
 	onSuccess    func(apiKey string) // 请求成功后回调（用于触发额度刷新）
 	proxyURL     string              // 出站代理
@@ -290,15 +290,23 @@ func (r *OpenAIRelay) handleChatCompletions(w http.ResponseWriter, req *http.Req
 			r.log("chat request: model=%s messages=%d stream=%v key=%s...", chatReq.Model, len(chatReq.Messages), stream, truncKey(apiKey))
 		}
 
-		protoBody := BuildChatRequestWithModel(chatReq.Messages, apiKey, jwtStr, "", chatReq.Model)
-		grpcPayload := WrapGRPCEnvelope(protoBody)
-
-		resp, kind, err := r.sendGRPC(grpcPayload, apiKey, jwtStr)
+		r.proxy.mu.RLock()
+		chatFP := r.proxy.keyFingerprint(apiKey)
+		r.proxy.mu.RUnlock()
+		protoBody := BuildChatRequestWithModel(chatReq.Messages, apiKey, jwtStr, "", chatReq.Model, chatFP)
+		// Connect 协议：直接发送 protobuf body（无 envelope）
+		// 有 envelope 返回 invalid_argument，无 envelope 返回 resource_exhausted（更接近成功）
+		resp, kind, err := r.sendGRPC(protoBody, apiKey, jwtStr)
 		if err != nil {
 			if kind == upstreamFailureQuota {
 				r.log("额度耗尽 key=%s... 自动轮转重试(%d/%d)", truncKey(apiKey), attempt+1, r.maxRetry)
 				r.proxy.markRuntimeExhaustedAndRotate(apiKey, "relay-quota")
 				continue
+			}
+			if kind == upstreamFailureGlobalRateLimit {
+				r.log("全局限速命中 key=%s..., 放弃重试", truncKey(apiKey))
+				writeRelayUpstreamFailure(w, kind, err.Error())
+				return
 			}
 			if kind == upstreamFailureRateLimit {
 				r.log("限速命中 key=%s... 自动轮转重试(%d/%d)", truncKey(apiKey), attempt+1, r.maxRetry)
@@ -432,7 +440,10 @@ func (r *OpenAIRelay) currentUpstreamTransport() http.RoundTripper {
 
 func buildGetChatMessageRequest(upIP string, payload []byte, jwt string) (*http.Request, error) {
 	connectURL := fmt.Sprintf("https://%s/exa.api_server_pb.ApiServerService/GetChatMessage", upIP)
-	req, err := http.NewRequest(http.MethodPost, connectURL, bytes.NewReader(payload))
+	// ★ IDE 实际发送 gzip-compressed Connect envelope（flag=0x01 + gzip(payload)）。
+	// 之前裸发 resource_exhausted，加普通 envelope 返回 invalid_argument——必须 gzip envelope。
+	wrapped := WrapGRPCEnvelopeGzip(payload)
+	req, err := http.NewRequest(http.MethodPost, connectURL, bytes.NewReader(wrapped))
 	if err != nil {
 		return nil, err
 	}
@@ -441,9 +452,11 @@ func buildGetChatMessageRequest(upIP string, payload []byte, jwt string) (*http.
 	req.Header.Set("Content-Type", "application/connect+proto")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	req.Header.Set("Authorization", "Bearer "+jwt)
-	req.Header.Set("User-Agent", "connect-es/1.6.1")
-	req.Header.Set("X-Client-Name", WindsurfAppName)
-	req.Header.Set("X-Client-Version", WindsurfVersion)
+	req.Header.Set("User-Agent", "connect-go/1.18.1 (go1.26.1)")
+	req.Header.Set("Accept-Encoding", "identity")
+	// Connect 流式帧级压缩协商：每帧内部 gzip
+	req.Header.Set("Connect-Content-Encoding", "gzip")
+	req.Header.Set("Connect-Accept-Encoding", "gzip")
 	return req, nil
 }
 
@@ -493,6 +506,11 @@ func (r *OpenAIRelay) sendGRPC(payload []byte, apiKey, jwt string) (*http.Respon
 		return nil, kind, fmt.Errorf("%s", detail)
 	}
 	r.log("sendGRPC ok: proto=%s status=%d", resp.Proto, resp.StatusCode)
+
+	// ★ gRPC streaming: 检查 trailers 中的错误（grpc-status 在 trailers 里，不在 headers 里）
+	// 先 peek body：如果 body 为空且 trailers 有错误，提前返回
+	// 注意：不能 io.ReadAll 因为 streamResponse 需要读 body
+	// 改为在 streamResponse 末尾检查 trailers
 	return resp, upstreamFailureNone, nil
 }
 
@@ -667,6 +685,9 @@ func writeRelayUpstreamFailure(w http.ResponseWriter, kind upstreamFailureKind, 
 	case upstreamFailureRateLimit:
 		status = 429
 		errType = "rate_limit"
+	case upstreamFailureGlobalRateLimit:
+		status = 429
+		errType = "global_rate_limit"
 	case upstreamFailureAuth:
 		status = 401
 		errType = "authentication_error"

@@ -56,7 +56,7 @@ const handleUnbind = async (convIDShort: string) => {
     <div class="space-y-2 max-h-48 overflow-y-auto pr-1">
       <div
         v-for="(s, index) in sessions"
-        :key="`${s.conv_id_short}-${index}`"
+        :key="`${s.conv_id || s.conv_id_short}-${index}`"
         class="flex items-center justify-between gap-3 rounded-[16px] border border-black/[0.05] bg-black/[0.03] px-3 py-2.5 text-[12px] dark:border-white/[0.06] dark:bg-white/[0.03]"
       >
         <div class="flex min-w-0 items-center gap-2.5">
@@ -75,7 +75,8 @@ const handleUnbind = async (convIDShort: string) => {
               <span
                 v-else
                 class="truncate font-mono text-ios-text dark:text-ios-textDark"
-                >{{ s.conv_id_short }}</span
+                :title="s.conv_id"
+                >{{ s.conv_id || s.conv_id_short }}</span
               >
               <span
                 class="shrink-0 rounded-full bg-ios-blue/10 px-2 py-0.5 text-[10px] font-bold text-ios-blue"
@@ -86,7 +87,7 @@ const handleUnbind = async (convIDShort: string) => {
             <div
               class="mt-0.5 flex items-center gap-2 text-[10px] text-ios-textSecondary dark:text-ios-textSecondaryDark"
             >
-              <span v-if="s.title" class="font-mono opacity-60">{{ s.conv_id_short }}</span>
+              <span v-if="s.title" class="font-mono opacity-60">{{ s.conv_id || s.conv_id_short }}</span>
               <span class="flex items-center gap-1">
                 <Clock class="h-3 w-3" stroke-width="2" />
                 {{ formatDateTimeAsiaShanghai(s.last_seen_at) }}
@@ -99,7 +100,7 @@ const handleUnbind = async (convIDShort: string) => {
           type="button"
           class="no-drag-region shrink-0 rounded-full border border-rose-500/15 bg-rose-500/[0.06] p-1.5 text-rose-600 transition-colors hover:bg-rose-500/[0.12] dark:text-rose-400"
           title="解除绑定"
-          @click="handleUnbind(s.conv_id_short)"
+          @click="handleUnbind(s.conv_id || s.conv_id_short)"
         >
           <Unlink class="h-3 w-3" stroke-width="2.4" />
         </button>

@@ -222,7 +222,7 @@ func WriteProtoDump(label string, data []byte) (string, error) {
 	sb.WriteString(DumpProtoFieldTree(payload, 12))
 
 	fmt.Fprintf(&sb, "\n=== Raw Hex ===\n")
-	sb.WriteString(hexPreview(data, 2048))
+	sb.WriteString(hexPreview(data, len(data)*2+1))
 	sb.WriteByte('\n')
 
 	if err := os.WriteFile(path, []byte(sb.String()), 0644); err != nil {
@@ -246,12 +246,12 @@ func sanitizeFilename(s string) string {
 
 // dumpTeeBody 包装 ReadCloser，捕获前 maxCapture 字节用于 dump，同时透传给下游。
 type dumpTeeBody struct {
-	inner      io.ReadCloser
-	captured   []byte
-	maxCap     int
-	label      string
-	logger     interface{ log(string, ...interface{}) }
-	finalized  bool
+	inner     io.ReadCloser
+	captured  []byte
+	maxCap    int
+	label     string
+	logger    interface{ log(string, ...interface{}) }
+	finalized bool
 }
 
 const defaultStreamDumpCap = 32768 // 32KB

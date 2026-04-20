@@ -104,7 +104,7 @@ func TestBuildChatRequestProducesValidProtobuf(t *testing.T) {
 	msgs := []ChatMessage{
 		{Role: "user", Content: "Hello world"},
 	}
-	body := BuildChatRequest(msgs, "sk-ws-test123", "jwt-token", "conv-abc")
+	body := BuildChatRequest(msgs, "sk-ws-test123", "jwt-token", "conv-abc", nil)
 
 	// 应该能被 decodeProtoMessage 解析
 	fields := decodeProtoMessage(body)
@@ -127,7 +127,7 @@ func TestBuildChatRequestProducesValidProtobuf(t *testing.T) {
 
 func TestBuildChatRequestOmitsConversationIDWhenEmpty(t *testing.T) {
 	msgs := []ChatMessage{{Role: "user", Content: "test"}}
-	body := BuildChatRequest(msgs, "sk-ws-key", "jwt", "")
+	body := BuildChatRequest(msgs, "sk-ws-key", "jwt", "", nil)
 
 	fields := decodeProtoMessage(body)
 	// conversation_id 现在在 F15 中，空 conv_id 不应有 F15
@@ -140,7 +140,8 @@ func TestBuildChatRequestOmitsConversationIDWhenEmpty(t *testing.T) {
 
 func TestBuildChatRequestMetadataContainsAPIKey(t *testing.T) {
 	msgs := []ChatMessage{{Role: "user", Content: "hi"}}
-	body := BuildChatRequest(msgs, "sk-ws-mykey", "myjwt", "")
+	// 无 JWT 时，F3 回落到 sk-ws-* API key
+	body := BuildChatRequest(msgs, "sk-ws-mykey", "", "", nil)
 
 	fields := decodeProtoMessage(body)
 	var metaBytes []byte
@@ -163,8 +164,36 @@ func TestBuildChatRequestMetadataContainsAPIKey(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("API key not found in metadata field 3")
+		t.Error("API key fallback not found in metadata F3 (should be sk-ws-mykey when jwt empty)")
 	}
+}
+
+// TestBuildChatRequestMetadataPrefersJWT 验证有 JWT 时 F3 用 JWT（对齐 IDE 行为）
+func TestBuildChatRequestMetadataPrefersJWT(t *testing.T) {
+	msgs := []ChatMessage{{Role: "user", Content: "hi"}}
+	body := BuildChatRequest(msgs, "sk-ws-mykey", "myjwt", "", nil)
+
+	fields := decodeProtoMessage(body)
+	var metaBytes []byte
+	for _, f := range fields {
+		if f.Number == 1 && f.Wire == 2 {
+			metaBytes = f.Bytes
+			break
+		}
+	}
+	if metaBytes == nil {
+		t.Fatal("no metadata field found")
+	}
+	metaFields := decodeProtoMessage(metaBytes)
+	for _, mf := range metaFields {
+		if mf.Number == 3 && mf.Wire == 2 {
+			if string(mf.Bytes) != "myjwt" {
+				t.Errorf("F3 should be jwt when present, got %q", string(mf.Bytes))
+			}
+			return
+		}
+	}
+	t.Error("F3 not found in metadata")
 }
 
 func TestFlattenMessagesSingle(t *testing.T) {

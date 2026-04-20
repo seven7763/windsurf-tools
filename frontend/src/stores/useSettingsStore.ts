@@ -9,7 +9,6 @@ import {
   normalizeSwitchPlanFilter,
   settingsToForm,
 } from '../utils/settingsModel'
-import { PURE_MITM_ONLY } from '../utils/appMode'
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<models.Settings | null>(null)
@@ -59,22 +58,6 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value = normalizeSettings(payload)
   }
 
-  const ensurePureMitm = async () => {
-    if (!PURE_MITM_ONLY) {
-      return
-    }
-    const current = normalizeSettings(settings.value ?? createDefaultSettings())
-    if (current.mitm_only === true) {
-      settings.value = current
-      return
-    }
-    const next = new models.Settings({
-      ...current,
-      mitm_only: true,
-    })
-    await updateSettings(next)
-  }
-
   /** 仅更新「无感下一席位」计划筛选并写回设置文件 */
   const saveAutoSwitchPlanFilter = async (filter: string) => {
     const base = normalizeSettings(settings.value ?? createDefaultSettings())
@@ -90,7 +73,6 @@ export const useSettingsStore = defineStore('settings', () => {
     hasLoadedOnce,
     fetchSettings,
     updateSettings,
-    ensurePureMitm,
     saveAutoSwitchPlanFilter,
   }
 })

@@ -53,6 +53,8 @@ type UsageTracker struct {
 	records  []UsageRecord
 	loaded   bool
 	maxStore int // 最大存储条数（0=无限制）
+	summary  UsageSummary
+	dirty    bool
 }
 
 // NewUsageTracker 创建用量追踪器
@@ -60,6 +62,7 @@ func NewUsageTracker(dataDir string) *UsageTracker {
 	return &UsageTracker{
 		dataDir:  dataDir,
 		maxStore: 10000,
+		dirty:    true,
 	}
 }
 
@@ -86,6 +89,7 @@ func (t *UsageTracker) Record(rec UsageRecord) {
 	if t.maxStore > 0 && len(t.records) > t.maxStore {
 		t.records = t.records[len(t.records)-t.maxStore:]
 	}
+	t.markSummaryDirtyLocked()
 	t.saveLocked()
 }
 
@@ -114,6 +118,14 @@ func (t *UsageTracker) GetSummary() UsageSummary {
 	if !t.loaded {
 		t.loadLocked()
 	}
+	if t.dirty {
+		t.summary = t.computeSummaryLocked()
+		t.dirty = false
+	}
+	return cloneUsageSummary(t.summary)
+}
+
+func (t *UsageTracker) computeSummaryLocked() UsageSummary {
 	s := UsageSummary{
 		ByModel:       make(map[string]int),
 		ByModelTokens: make(map[string]int),
@@ -172,8 +184,12 @@ func (t *UsageTracker) GetSummary() UsageSummary {
 func (t *UsageTracker) DeleteAll() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if !t.loaded {
+		t.loadLocked()
+	}
 	n := len(t.records)
 	t.records = nil
+	t.markSummaryDirtyLocked()
 	t.saveLocked()
 	return n
 }
@@ -197,6 +213,7 @@ func (t *UsageTracker) DeleteBefore(before time.Time) int {
 	}
 	t.records = kept
 	if deleted > 0 {
+		t.markSummaryDirtyLocked()
 		t.saveLocked()
 	}
 	return deleted
@@ -218,10 +235,14 @@ func (t *UsageTracker) loadLocked() {
 	t.loaded = true
 	data, err := os.ReadFile(t.filePath())
 	if err != nil {
+		t.records = nil
+		t.markSummaryDirtyLocked()
 		return
 	}
 	var records []UsageRecord
 	if err := json.Unmarshal(data, &records); err != nil {
+		t.records = nil
+		t.markSummaryDirtyLocked()
 		return
 	}
 	// 按时间排序
@@ -229,6 +250,7 @@ func (t *UsageTracker) loadLocked() {
 		return records[i].At < records[j].At
 	})
 	t.records = records
+	t.markSummaryDirtyLocked()
 }
 
 func (t *UsageTracker) saveLocked() {
@@ -247,4 +269,29 @@ func estimateTokens(text string) int {
 		n = 1
 	}
 	return n
+}
+
+func (t *UsageTracker) markSummaryDirtyLocked() {
+	t.dirty = true
+	t.summary = UsageSummary{}
+}
+
+func cloneUsageSummary(in UsageSummary) UsageSummary {
+	out := in
+	out.ByModel = cloneStringIntMap(in.ByModel)
+	out.ByModelTokens = cloneStringIntMap(in.ByModelTokens)
+	out.ByDate = cloneStringIntMap(in.ByDate)
+	out.ByDateTokens = cloneStringIntMap(in.ByDateTokens)
+	return out
+}
+
+func cloneStringIntMap(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return map[string]int{}
+	}
+	out := make(map[string]int, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

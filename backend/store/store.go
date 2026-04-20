@@ -80,9 +80,6 @@ func (s *Store) load() {
 		if _, ok := raw["quota_hot_poll_seconds"]; !ok {
 			s.settings.QuotaHotPollSeconds = 12
 		}
-		if _, ok := raw["restart_windsurf_after_switch"]; !ok {
-			s.settings.RestartWindsurfAfterSwitch = true
-		}
 	}
 }
 

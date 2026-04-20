@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -221,11 +222,11 @@ func InstallCA() error {
 			return fmt.Errorf("安装 CA 失败: %s\n%s", err, string(output))
 		}
 	case "darwin":
-		cmd := exec.Command("security", "add-trusted-cert", "-d", "-r", "trustRoot",
-			"-k", "/Library/Keychains/System.keychain", certPath)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("安装 CA 失败: %s\n%s", err, string(output))
+		// macOS 14+ 上 osascript 的 "administrator privileges" 无法给 SecTrustSettings API
+		// 提供正确的授权上下文 —— 证书会落库但 trust settings 不会被写入。
+		// 解决办法：用 Terminal.app 打开一个交互式 sudo 会话，让用户在终端里输入密码。
+		if err := darwinInstallCAViaTerminal(certPath); err != nil {
+			return fmt.Errorf("安装 CA 失败: %w", err)
 		}
 	default:
 		// Linux: copy to /usr/local/share/ca-certificates/ and run update-ca-certificates
@@ -258,11 +259,12 @@ func UninstallCA() error {
 		}
 	case "darwin":
 		certPath := caCertPath()
-		cmd := exec.Command("security", "remove-trusted-cert",
-			"-d", certPath)
-		output, err := cmd.CombinedOutput()
+		output, err := runCommandWithPrivilege("security", "remove-trusted-cert", "-d", certPath)
 		if err != nil {
-			return fmt.Errorf("卸载 CA 失败: %s\n%s", err, string(output))
+			// 证书可能已被手动移除；忽略 not found 错误
+			if !strings.Contains(string(output), "SecTrustSettingsRemoveTrustSettings") {
+				return fmt.Errorf("卸载 CA 失败: %s\n%s", err, string(output))
+			}
 		}
 	default:
 		dstFile := "/usr/local/share/ca-certificates/windsurf-tools-ca.crt"
@@ -300,6 +302,22 @@ func isCAInstalledUncached() bool {
 		hideWindow(cmd)
 		err := cmd.Run()
 		return err == nil
+	case "darwin":
+		// 必须同时满足：① 证书在系统钥匙串里 ② verify-cert 能实际校验通过
+		// 不要用 "Number of trust settings" 判断 —— 这个计数对新装的 CA 总是 0，
+		// 跟系统内置 159 个根 CA 一样，并不代表"未信任"。
+		if err := exec.Command("security", "find-certificate", "-c", "Windsurf Tools CA",
+			"/Library/Keychains/System.keychain").Run(); err != nil {
+			return false
+		}
+		// verify-cert 用系统全部信任策略校验证书链。若 CA 已被信任（admin/system 域
+		// 或系统默认），返回 exit 0 + "certificate verification successful"。
+		out, err := exec.Command("security", "verify-cert",
+			"-c", caCertPath()).CombinedOutput()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(out), "successful")
 	default:
 		return linuxCAInstalled(caCertPath(), linuxSystemCACertPath())
 	}

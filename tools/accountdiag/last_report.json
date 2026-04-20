@@ -1,0 +1,3531 @@
+{
+  "summary": {
+    "generated_at": "2026-04-18T01:56:10+08:00",
+    "total_accounts": 129,
+    "grpc_ok": 127,
+    "jwt_ok": 127,
+    "json_checked": 17,
+    "json_ok": 4,
+    "weekly_missing_blocked": 6,
+    "stored_expiry_past": 0,
+    "chat_attempted": 25,
+    "chat_ok": 0,
+    "chat_quota_failures": 0,
+    "chat_auth_failures": 0,
+    "chat_other_failures": 25,
+    "chat_healthy_sample_selected": 10
+  },
+  "results": [
+    {
+      "id": "a0e6d7f1-ce55-41ad-8381-e5f2de685366",
+      "email": "78payday-pipe@icloud.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "disabled",
+      "stored_daily_remaining": "88.00%",
+      "stored_weekly_remaining": "35.00%",
+      "stored_subscription_expires": "2026-04-22T09:14:39Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 88,
+        "weekly_quota_remaining": 35,
+        "subscription_expires_at": "2026-04-22T09:14:39Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 2ed5f114a28e42a19c4f18284ad75212)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-agW...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: 09083bd6567d41b9b0c23695e9e92320)\"}"
+      ]
+    },
+    {
+      "id": "227ac4d0-fa8d-46a4-bbfd-0fe6bea6a386",
+      "email": "akap2896@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "95.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:30Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 95,
+        "subscription_expires_at": "2026-05-15T08:48:30Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 39b0f24fcb1f40889365bc9ed312166f)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-RE-...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "8c2ada8c-4752-4218-810e-ddad3da4eb7f",
+      "email": "anthonyblack9475@outlook.com",
+      "stored_plan_name": "Free",
+      "stored_status": "disabled",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-22T09:21:53Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-22T09:21:53Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 906baf5809964592b4a6bb2e6e64e71e)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-j3k...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "2d96be45-c30c-48a6-bbf2-ec012dba6925",
+      "email": "araw8426@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:18Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:48:18Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 902a14baa10e48bfb55438201839a2b4)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-V8G...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "aa0d463e-69e7-404d-b8cb-a72421e6ec47",
+      "email": "avrn5805@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:55Z",
+      "weekly_missing_blocked": true,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:47:55Z",
+        "total_credits": 30
+      },
+      "json": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:47:55.079752Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 9f095047d36a4427b38b9fe6fd2bb3ec)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-qdK...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "1234499b-d3fb-4130-b5db-49b96820c65a",
+      "email": "axrr0953@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:08:32Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:08:32Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: d473d7a3a79643a08efe230a1414e8cf)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-gs_...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "83a2a0e5-bace-46ff-b61e-b36dfeb5a0d0",
+      "email": "bdzb2906@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:30Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:48:30Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: ccd054248c104545b9d2c1eeb539fc7d)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-F_L...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "2659a38b-8801-4ee4-b471-66f1fc515973",
+      "email": "brqi0932@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "49.00%",
+      "stored_subscription_expires": "2026-05-15T09:37:55Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 49,
+        "subscription_expires_at": "2026-05-15T09:37:55Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 1230828bbc6d46cc90b272f0ee7328a3)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-WN4...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "8fc30825-832e-4f35-ba5a-9402c654c0dc",
+      "email": "btpl9230@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:08:32Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:08:32Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 717dd82263b340afb1b998ca5759d836)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-bUj...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "c28a9d2f-0ef6-42fe-9e86-ea8ef19fe54f",
+      "email": "btxw7831@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:38:11Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:38:11Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 8a2b098e86aa44f6a9b0919164e603cc)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-Qh-...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "e2673fbd-6cff-4ff7-a6fe-c18bf355f0ea",
+      "email": "c5w5h7q43i@umgqcqe.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "99.00%",
+      "stored_weekly_remaining": "92.00%",
+      "stored_subscription_expires": "2026-05-17T04:10:04Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 99,
+        "weekly_quota_remaining": 92,
+        "subscription_expires_at": "2026-05-17T04:10:04Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 45fc2184e153458e807b56ab62fcc52e)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-ovw...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "32be5bd2-6221-4c2f-a482-b590a6582ce9",
+      "email": "cabesalberto36216@gmail.com",
+      "stored_plan_name": "Max",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "41.00%",
+      "stored_subscription_expires": "2026-05-11T20:00:31Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Max",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 41,
+        "subscription_expires_at": "2026-05-11T20:00:31Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 9a88de79ae194c418cc420be60a51535)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-c_X...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json-auth:no usable refresh/password auth path"
+      ]
+    },
+    {
+      "id": "a7825f3b-eb72-46cc-8bd8-035734a08e2e",
+      "email": "csya5493@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "67.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:05Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 67,
+        "subscription_expires_at": "2026-05-15T08:48:05Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: f06acd192ac3433abfb6a1a7830c0fc2)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-qyI...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "d546b8f9-b8d6-4da3-a24a-7e1114c92183",
+      "email": "cwvr3268@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "95.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:18Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 95,
+        "subscription_expires_at": "2026-05-15T08:48:18Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "7deb027a-a2dc-40c7-be38-f451c6c3543b",
+      "email": "daledaniels4566@hotmail.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "disabled",
+      "stored_daily_remaining": "37.00%",
+      "stored_weekly_remaining": "7.00%",
+      "stored_subscription_expires": "2026-04-22T09:19:30Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "jwt": {
+        "ok": false,
+        "error": "Connect JWT失败(HTTP 403): {\"code\":\"permission_denied\",\"message\":\"User is not authorized to use Cascade - ask your admin for access\"}"
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      },
+      "errors": [
+        "grpc:解析 GetUserStatus 响应失败: gRPC响应体太短(0 bytes) (rawLen=0)",
+        "jwt:Connect JWT失败(HTTP 403): {\"code\":\"permission_denied\",\"message\":\"User is not authorized to use Cascade - ask your admin for access\"}",
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: d53573074c5249f89836ecc27384b881)\"}"
+      ]
+    },
+    {
+      "id": "30a3a105-8a69-44bf-8f96-65d781e84bc2",
+      "email": "ezyy0116@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:18Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:48:18Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "e1b8f056-d3bb-4b86-b1a3-1e8fb3d12efd",
+      "email": "fagn6784@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:30Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:48:30Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "a2c4909f-3ff8-41b9-a4c1-b62ec6b78b73",
+      "email": "fargizylnj@oqqaj.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "95.00%",
+      "stored_weekly_remaining": "33.00%",
+      "stored_subscription_expires": "2026-04-22T10:49:33Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 95,
+        "weekly_quota_remaining": 33,
+        "subscription_expires_at": "2026-04-22T10:49:33Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: f5434746de9740b88698d1fbbb988a70)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-PY-...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: 57411037e9194939bdbf350b9d871e9a)\"}"
+      ]
+    },
+    {
+      "id": "7248ca6b-3462-44ef-830c-6b7cbc496d5d",
+      "email": "g5461908@umn.edu",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "83.00%",
+      "stored_weekly_remaining": "84.00%",
+      "stored_subscription_expires": "2026-05-01T02:38:07Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 83,
+        "weekly_quota_remaining": 84,
+        "subscription_expires_at": "2026-05-01T02:38:07Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 0ded4cdbcb1f42abb2382b1594c2949b)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-DjI...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json-auth:no usable refresh/password auth path"
+      ]
+    },
+    {
+      "id": "13f96ac6-461c-4e9b-a2d5-62cf7fe2d2d5",
+      "email": "gordonamanda6271@outlook.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-22T10:49:45Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-22T10:49:45Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 9d047c4ca9a3431683cf26799e9c4beb)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-gL8...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json-auth:no usable refresh/password auth path"
+      ]
+    },
+    {
+      "id": "c775b476-c7be-4b05-b6c6-ff7fb1356f8e",
+      "email": "gowy3836@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:08:17Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:08:17Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "611e3a4b-5df8-4c31-88cc-a3810d441649",
+      "email": "gyoy.hmpm@g.park.edu",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-22T09:12:58Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-22T09:12:58Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 1a3ec14110e0455aa43564881259e634)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-yu3...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: ecab7c9dba6b44d887f1e1426b36f227)\"}"
+      ]
+    },
+    {
+      "id": "3df6f9e2-3643-4ae1-9bde-ee85bcf57f23",
+      "email": "ibmn6683@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "28.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:45Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 28,
+        "subscription_expires_at": "2026-05-15T08:47:45Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "5a02309c-5e5b-4ffd-9582-ba75471e180f",
+      "email": "kbxw1402@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-17T09:37:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-17T09:37:35Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "51c02506-fb95-487a-ace4-f62fbb7574aa",
+      "email": "khpg9611@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "99.00%",
+      "stored_subscription_expires": "2026-05-15T09:38:03Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 99,
+        "subscription_expires_at": "2026-05-15T09:38:03Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "e469a638-d026-4398-a6b4-5481edeefc5b",
+      "email": "kimberlygutierrez6022@hotmail.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "disabled",
+      "stored_daily_remaining": "23.00%",
+      "stored_weekly_remaining": "19.00%",
+      "stored_subscription_expires": "2026-04-22T09:19:31Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "jwt": {
+        "ok": false,
+        "error": "Connect JWT失败(HTTP 403): {\"code\":\"permission_denied\",\"message\":\"User is not authorized to use Cascade - ask your admin for access\"}"
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      },
+      "errors": [
+        "grpc:解析 GetUserStatus 响应失败: gRPC响应体太短(0 bytes) (rawLen=0)",
+        "jwt:Connect JWT失败(HTTP 403): {\"code\":\"permission_denied\",\"message\":\"User is not authorized to use Cascade - ask your admin for access\"}",
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: 3bac9d3fc5cc40c59d91604510978b22)\"}"
+      ]
+    },
+    {
+      "id": "93024849-2013-4850-b593-cc9f9f9bb923",
+      "email": "kixd0375@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "46.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:45Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 46,
+        "subscription_expires_at": "2026-05-15T08:47:45Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "197b6fd6-8811-4911-b9eb-3480e95d3ea2",
+      "email": "kokoro3609lilia@hotmail.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "96.00%",
+      "stored_weekly_remaining": "97.00%",
+      "stored_subscription_expires": "2026-04-22T09:11:42Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 96,
+        "weekly_quota_remaining": 97,
+        "subscription_expires_at": "2026-04-22T09:11:42Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 60c4c950c1034c8fb909751e8dc1cc09)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-8Gx...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: a9401fa21aa7494ab24946dc6f272d26)\"}"
+      ]
+    },
+    {
+      "id": "c08409fc-a194-43e7-ba32-8ed387ee0710",
+      "email": "krtx0555@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "99.00%",
+      "stored_subscription_expires": "2026-05-17T10:23:24Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 99,
+        "subscription_expires_at": "2026-05-17T10:23:24Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "1f143598-74dd-4648-9542-e6a1705e9f14",
+      "email": "larl0380@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "28.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:45Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 28,
+        "subscription_expires_at": "2026-05-15T08:47:45Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "3b55d71e-3660-46f6-a045-61d237cc22cb",
+      "email": "lrvc9399@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:38:11Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:38:11Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "05704eba-e1eb-452e-a75c-9c48b9a911c1",
+      "email": "lvvg6349@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:45Z",
+      "weekly_missing_blocked": true,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:47:45Z",
+        "total_credits": 30
+      },
+      "json": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:47:45.817934Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: a3db9ffe403e40cb93896675aa92adfa)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01--9V...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "c1e8dea3-af9d-47a5-bc47-e979a7219cfb",
+      "email": "meie0052@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-16T04:37:48Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-16T04:37:48Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "84d817cb-eac9-4c7d-8536-921070c059b1",
+      "email": "msdm7341@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "52.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:05Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 52,
+        "subscription_expires_at": "2026-05-15T08:48:05Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "57d626a0-1cea-436e-b11b-360db5b18795",
+      "email": "nann6967@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:30Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:48:30Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "c2603e7c-ff9f-4074-81ed-50ad95a32c74",
+      "email": "peko@immunomedic.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "56.00%",
+      "stored_subscription_expires": "2026-04-22T09:14:40Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 56,
+        "subscription_expires_at": "2026-04-22T09:14:40Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: f14a3ab3eba545a5a2ed38a0633cc427)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-CQP...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: d6ad786cb82d478caf037ba829e019ec)\"}"
+      ]
+    },
+    {
+      "id": "b7cd91b2-5a42-498b-b2c3-92bb765a0b2d",
+      "email": "pkmc5147@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "49.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:05Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 49,
+        "subscription_expires_at": "2026-05-15T08:48:05Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "5f6bdd3e-c53c-472b-9e1d-9af5845b8e1d",
+      "email": "pqyl0706@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "12.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:55Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 12,
+        "subscription_expires_at": "2026-05-15T08:47:55Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ca4da109-1e6d-47d6-8c03-c1d585472863",
+      "email": "ralphthomas1225@hotmail.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-22T09:17:43Z",
+      "weekly_missing_blocked": true,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-22T09:17:43Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: c5c6c9972c204c24b4b81d9ee272be99)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-Z0T...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json-auth:no usable refresh/password auth path"
+      ]
+    },
+    {
+      "id": "4576e8e5-0519-429d-b731-8f0811df4546",
+      "email": "reui7713@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "40.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:55Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 40,
+        "subscription_expires_at": "2026-05-15T08:47:55Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "3a82a19b-883a-4ca5-b0ea-bac8c5b403b2",
+      "email": "robertkim8800@outlook.com",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-22T09:20:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-22T09:20:52Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "73deeb29-5f83-4f34-96f8-aefc8d17d49a",
+      "email": "rogerwilliams4981@hotmail.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "49.00%",
+      "stored_subscription_expires": "2026-04-22T09:17:45Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 49,
+        "subscription_expires_at": "2026-04-22T09:17:45Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 6279856090ec48fc96e9385ac0ae086d)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-ewg...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: 935b7aa358e549bf832452362c237239)\"}"
+      ]
+    },
+    {
+      "id": "a14a73f0-d081-4369-b19d-e016fa9dee4c",
+      "email": "skhy4791@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "20.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:45Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 20,
+        "subscription_expires_at": "2026-05-15T08:47:45Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "8d265136-ed73-486a-b0f3-7f201e358ef5",
+      "email": "snmm5689@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "77.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:48Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 77,
+        "subscription_expires_at": "2026-05-15T08:47:48Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "f3160961-ba6a-449f-a241-c6f3f28c40e5",
+      "email": "stephaniepeterson1421@hotmail.com",
+      "stored_plan_name": "Pro",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-22T09:18:58Z",
+      "weekly_missing_blocked": true,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Pro",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-22T09:18:58Z"
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 035f7433e101449593f866d8a8d9b41c)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-muA...",
+        "response_bytes": 128
+      },
+      "errors": [
+        "json:GetPlanStatus(JSON)失败(401): {\"code\":\"unauthenticated\",\"message\":\"Your account has been migrated. Please log in again. (error ID: cfceb579eb7a44ca9d8d88d5b7706f42)\"}"
+      ]
+    },
+    {
+      "id": "f28074bd-c4a6-4c0f-9353-bf524e18e882",
+      "email": "taij2601@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "18.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:55Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 18,
+        "subscription_expires_at": "2026-05-15T08:47:55Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "d07b5fdf-f422-4cd0-937d-9a8e79969589",
+      "email": "thiu9392@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "50.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:55Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 50,
+        "subscription_expires_at": "2026-05-15T08:47:55Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "6b67fa07-d3fc-4d8b-9773-1c5ea8059700",
+      "email": "tjef5200@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:08:07Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:08:07Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "001fa011-1004-437b-b10c-ddb479b02e5a",
+      "email": "ttmo0745@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "50.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:05Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 50,
+        "subscription_expires_at": "2026-05-15T08:48:05Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "94675ac8-98dc-4a0f-a862-74ef2802299c",
+      "email": "uhmq5855@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "95.00%",
+      "stored_subscription_expires": "2026-05-15T09:38:03Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 95,
+        "subscription_expires_at": "2026-05-15T09:38:03Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "67a5efa5-8f28-4acf-b6c2-3b8b3fcd2e89",
+      "email": "vibk1981@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "71.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:05Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 71,
+        "subscription_expires_at": "2026-05-15T08:48:05Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "86091375-dca6-4443-ad52-c9857caea12a",
+      "email": "wb4u79uffu@otzchga.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-16T18:35:28Z",
+      "weekly_missing_blocked": true,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-16T18:35:28Z",
+        "total_credits": 30
+      },
+      "json": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-16T18:35:28.747020Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: 367bf1c2d69a4f529ec19311e151b91c)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-3ts...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "1c027a7e-f934-4816-b235-7aae9eba559a",
+      "email": "wbve3603@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "49.00%",
+      "stored_subscription_expires": "2026-05-15T08:47:55Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 49,
+        "subscription_expires_at": "2026-05-15T08:47:55Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "edee9746-5e4b-474f-a4aa-d4eda5f36324",
+      "email": "yerz5233@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T09:37:55Z",
+      "weekly_missing_blocked": true,
+      "stored_expiry_past": false,
+      "json_attempted": true,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:37:55Z",
+        "total_credits": 30
+      },
+      "json": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T09:37:55.536955Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": true,
+        "ok": false,
+        "kind": "other",
+        "error": "\u0002\u0000\u0000\u0000{{\"error\":{\"code\":\"resource_exhausted\",\"message\":\"an internal error occurred (error ID: a1a2876691ed488fa27699a1f78900a2)\"}}",
+        "http_status": 200,
+        "used_api_key": "sk-ws-01-BHY...",
+        "response_bytes": 128
+      }
+    },
+    {
+      "id": "fb9a8a2e-bd4e-4ace-86c3-742c0ad4b4a3",
+      "email": "zft001-0ge3rntrnl@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:08Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:08Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "9aeae75f-331b-4349-baf0-0ab52d12ea85",
+      "email": "zft001-0l28dholeu@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:25Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:25Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "2a7070c9-1077-4f38-929d-1c7fd6d06a73",
+      "email": "zft001-1xra2uod31@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:15:36Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:15:36Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "a9841d9e-ba65-46cb-9323-77193e8dc7be",
+      "email": "zft001-2dg5vp16wv@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:03:50Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:03:50Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "70b57ae9-7eb2-43cd-a2ef-2c6c638452a2",
+      "email": "zft001-2y8wjwhuha@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:35Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "226ac99f-a5b3-412d-af5f-8a1932003f59",
+      "email": "zft001-39p93f0rzb@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:23Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:23Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "35f1a23b-0750-49f3-931e-4c10cfc82159",
+      "email": "zft001-3q5sts9ex5@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "65.00%",
+      "stored_subscription_expires": "2026-04-24T06:11:42Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 65,
+        "subscription_expires_at": "2026-04-24T06:11:42Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "a4bc00b1-ddb1-41a1-af8b-3607e620ee49",
+      "email": "zft001-41gvepm9en@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "94.00%",
+      "stored_weekly_remaining": "93.00%",
+      "stored_subscription_expires": "2026-04-25T05:11:53Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 94,
+        "weekly_quota_remaining": 93,
+        "subscription_expires_at": "2026-04-25T05:11:53Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "847278b4-2b33-4cf4-85bd-637695d02851",
+      "email": "zft001-559hl7c6s7@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:14:32Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:14:32Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "9525ac47-f87d-4911-86d7-767fc3b53fa1",
+      "email": "zft001-5pn0ybjn19@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:52Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "5c4b0d5e-d67e-4df0-8d6c-c57bf7481b99",
+      "email": "zft001-6m5p5m0etf@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:15:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:15:52Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "0c1c1919-7201-45bf-98e8-a1178417c721",
+      "email": "zft001-710hgcv4bu@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:59Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:59Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ca163800-1a9a-469a-aada-8820f8f85fae",
+      "email": "zft001-779yo103ra@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:52Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "8f4efe2e-dc54-4165-ae99-fbe5334df1f3",
+      "email": "zft001-7tke73nvnn@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:29Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:29Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "d95fcd78-bb04-45a8-ac2d-5ec54593b564",
+      "email": "zft001-7w22g1rz79@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:19Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:19Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "5f620631-4c92-4e7b-932f-0475b5cc8c96",
+      "email": "zft001-8pctznqfbb@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:02:39Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:02:39Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "04915f27-3b83-4961-8c83-822addef6345",
+      "email": "zft001-9ioozh0m7g@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:03:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:03:52Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "25e1cce9-13e5-4b23-8768-f00537e851a5",
+      "email": "zft001-9v45bimkgk@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:52Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "944797d9-b846-4816-aae7-3b57e681c2c5",
+      "email": "zft001-9zka7rkib7@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-23T12:06:50Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-23T12:06:50Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "c787d927-2147-45d4-b84c-a51e5d9f611d",
+      "email": "zft001-af7njg42fv@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:32:18Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:32:18Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "acf5bd59-a819-411d-8851-9a060637b9a0",
+      "email": "zft001-bpz2le8gg8@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:21Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:21Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "62419631-0cc7-4fba-8e4a-cc0fe50eae14",
+      "email": "zft001-c7tjep3usv@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:03:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:03:35Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "01689031-263f-4dc4-8d53-c66da66bbf24",
+      "email": "zft001-cn2qdglgyx@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:56:09Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:56:09Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "c5ea3eea-2794-496d-b55b-58b85710c4ac",
+      "email": "zft001-cxkt33jxbb@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:35Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "b0d1ad74-6c29-4371-a34b-ce6342df8f08",
+      "email": "zft001-d8uf8crx8v@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "93.00%",
+      "stored_subscription_expires": "2026-04-25T04:56:13Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 93,
+        "subscription_expires_at": "2026-04-25T04:56:13Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "7193d99f-f4ef-40b3-a492-72a8b91b4980",
+      "email": "zft001-dknj1kbf9e@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:11:37Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:11:37Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "5ef70307-12a3-457d-8521-bac1d5401f31",
+      "email": "zft001-eb96odty1y@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:00:29Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:00:29Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "dfdbcf53-371a-4edf-847b-9efa2d3b3128",
+      "email": "zft001-eh0itjtp24@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:31Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:31Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "8fdc86d0-8ffe-445a-b869-ae833d8f94de",
+      "email": "zft001-eh3n8azwno@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:03Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:03Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "0748a7c4-9deb-40e9-a9ef-711dabaae236",
+      "email": "zft001-ex8bm2t8bo@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:30Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:30Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "07d66710-114b-4f77-85f1-5c77a64e4338",
+      "email": "zft001-f2onjcm5j2@yahoo.com",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "21.00%",
+      "stored_subscription_expires": "2026-05-15T14:10:58Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 21,
+        "subscription_expires_at": "2026-05-15T14:10:58Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "7bb0e80e-8da2-4f20-aa61-541648de93b0",
+      "email": "zft001-fgr3g2f0x9@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:56:00Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:56:00Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "34c67953-92ad-4e4e-bb4e-9d7a32ee51ec",
+      "email": "zft001-fmavkru677@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:11:37Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:11:37Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "901b59f5-a604-45f0-9dd0-5c6de0e535c0",
+      "email": "zft001-fqae69w60a@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "86.00%",
+      "stored_weekly_remaining": "86.00%",
+      "stored_subscription_expires": "2026-04-25T04:56:15Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 86,
+        "weekly_quota_remaining": 86,
+        "subscription_expires_at": "2026-04-25T04:56:15Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "c7e8d86c-aef1-4271-9a91-def8848de126",
+      "email": "zft001-ha9qlm1hrd@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:08Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:08Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "21e617f6-340c-4b8d-86d0-256b55c5588f",
+      "email": "zft001-i0f8nt4ige@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:11:47Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:11:47Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "c9d3d58b-3140-4783-9ef2-16311584b35f",
+      "email": "zft001-ilv3y7vzt6@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:25Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:25Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ad268b2d-5173-4ccf-b00e-4d692e94378b",
+      "email": "zft001-laabpp6bkz@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:36Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:36Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "17e09d9f-cd6f-4682-922e-cef906a51e26",
+      "email": "zft001-lb67w4311e@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:14:32Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:14:32Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "2421ef58-2b12-4d2f-afdf-0ca2e2903fda",
+      "email": "zft001-llfoibs6od@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:35Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "6b783b5b-454e-41eb-84f7-36a0ae0ed1c8",
+      "email": "zft001-mc7n2n70u4@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "95.00%",
+      "stored_subscription_expires": "2026-04-25T04:56:09Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 95,
+        "subscription_expires_at": "2026-04-25T04:56:09Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "64dd96c7-8647-4dcc-8110-88f9c06ced48",
+      "email": "zft001-nd50rbokdy@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:13:58Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:13:58Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "8d455d49-1b25-4219-a6a5-1b382ff7f1ca",
+      "email": "zft001-nmtp3krehy@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:49Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:49Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "876f11aa-179c-4227-bd01-c33200103efc",
+      "email": "zft001-ntj38yjhij@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:02:40Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:02:40Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "3be58916-7c04-4823-bc06-59ce0889abbd",
+      "email": "zft001-ondaqmy8cl@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:43Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:43Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ff09a220-9734-42ba-9f65-595a0bb42c66",
+      "email": "zft001-oo8mbeak5i@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:19Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:19Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "75192ca3-c293-47d1-84d9-d5f7806d2be4",
+      "email": "zft001-p6bpyzxt3i@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:02:39Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:02:39Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "8f56c980-d69a-4810-9dd8-91ce4ec95131",
+      "email": "zft001-pbpx50b2f4@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:19Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:19Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "2af32a80-3f0f-4ccc-8e07-5dac0695a122",
+      "email": "zft001-qqyhadwe24@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:03:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:03:35Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "88047e0c-b114-434b-ae78-bb7d9e4f14c3",
+      "email": "zft001-r1piwzzl47@yahoo.com",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "49.00%",
+      "stored_subscription_expires": "2026-05-15T14:10:57Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 49,
+        "subscription_expires_at": "2026-05-15T14:10:57Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "31d7acdd-089f-4316-a812-a665bf114233",
+      "email": "zft001-rvjhhcd8q5@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:15:52Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:15:52Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ea4cd511-19ce-4574-bf2a-8edd7dfa9372",
+      "email": "zft001-rwivtdrukd@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:53Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:53Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "f18ce993-48dd-4ccc-a634-32eb16ac53dc",
+      "email": "zft001-s5348ukfvp@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:03:50Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:03:50Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "113bacc8-3c30-4207-9a3d-f0599433db0d",
+      "email": "zft001-sr76u8ws1k@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:02:40Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:02:40Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "bc372e0d-a8a7-4a8a-aabc-2446a5a96dde",
+      "email": "zft001-tpv9jew7w8@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:47Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:47Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "db89e02c-8d90-4eaf-9425-e06492789a81",
+      "email": "zft001-tqiays3zve@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:33:25Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:33:25Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "7f8ff7bc-8792-4299-bd81-4ab93fccc3ab",
+      "email": "zft001-ts1xgf4g0n@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:56:00Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:56:00Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "e821b524-6216-4178-a7a8-7c1ccef19db9",
+      "email": "zft001-ud0c4s5iuc@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "85.00%",
+      "stored_weekly_remaining": "33.00%",
+      "stored_subscription_expires": "2026-04-24T06:09:53Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 85,
+        "weekly_quota_remaining": 33,
+        "subscription_expires_at": "2026-04-24T06:09:53Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "d2826eb9-1e85-4958-8225-3d02d841ccb4",
+      "email": "zft001-uin1zfelxg@yahoo.com",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "5.00%",
+      "stored_subscription_expires": "2026-05-15T14:10:54Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 5,
+        "subscription_expires_at": "2026-05-15T14:10:54Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "68dd006c-e83a-4d76-83b3-d64819d02bd5",
+      "email": "zft001-upcvhpmw75@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:58Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:58Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ff58243e-9f9a-4362-8ffb-fbbacbca8a28",
+      "email": "zft001-upk02qd8og@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:25Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:25Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "e43f141a-dd88-4349-a003-c739e8f7f023",
+      "email": "zft001-uqur5tsbif@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:04:08Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:04:08Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "566ec0a9-da3c-4058-a260-bb8df7f596c0",
+      "email": "zft001-vrhresb3hf@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:59:14Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:59:14Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "d311cecb-7cfb-4e84-810d-0088c466ac33",
+      "email": "zft001-winpruqw63@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:18:46Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:18:46Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ee0651f2-1f9f-4c85-9c39-10ee94317c15",
+      "email": "zft001-x5moy85o8r@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:02:40Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:02:40Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "cb759137-88a9-4787-93b9-af4aebf46528",
+      "email": "zft001-xg6vup2x5a@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:42Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:42Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "62ad8d42-9c4f-4bb7-acdc-afae01d7fbff",
+      "email": "zft001-y1guuwmra9@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:11:46Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:11:46Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "ee7a56f0-fa29-4c11-a6d6-b5f80132d5f0",
+      "email": "zft001-ydl4pjob6h@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:59:14Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:59:14Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "c57b5361-d2f7-4e45-b1a4-ffb4be87edca",
+      "email": "zft001-yjz9xqqbo7@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T05:15:35Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T05:15:35Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "22899fca-76e1-4fa4-8372-96619c85053d",
+      "email": "zft001-yvghco7suo@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:00:20Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:00:20Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "30853b4a-eb76-4620-b0c9-b56f390ed1c0",
+      "email": "zft001-z4z707v45q@yahoo.com",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T06:48:34Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T06:48:34Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "e9c6e4b1-e6c0-490a-8982-ddeecde1a0dc",
+      "email": "zft001-z5oukooqus@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:38Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:38Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "355ff1dd-d205-4fab-8ee6-cc0cefdf8f43",
+      "email": "zft001-ze8rqns1w5@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T04:55:40Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T04:55:40Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "9e473459-9ac8-45e3-9328-0e69122e70e4",
+      "email": "zft001-zvya9oj4af@yahoo.com",
+      "stored_plan_name": "Trial",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-04-25T06:03:48Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Trial",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-04-25T06:03:48Z",
+        "total_credits": 300
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    {
+      "id": "48a7e901-8f68-48f4-af22-369a4a560d01",
+      "email": "zlwl8382@aiwindsurfai7.shop",
+      "stored_plan_name": "Free",
+      "stored_status": "active",
+      "stored_daily_remaining": "100.00%",
+      "stored_weekly_remaining": "100.00%",
+      "stored_subscription_expires": "2026-05-15T08:48:18Z",
+      "weekly_missing_blocked": false,
+      "stored_expiry_past": false,
+      "json_attempted": false,
+      "grpc": {
+        "plan_name": "Free",
+        "daily_quota_remaining": 100,
+        "weekly_quota_remaining": 100,
+        "subscription_expires_at": "2026-05-15T08:48:18Z",
+        "total_credits": 30
+      },
+      "jwt": {
+        "ok": true
+      },
+      "chat": {
+        "attempted": false,
+        "ok": false
+      }
+    }
+  ]
+}

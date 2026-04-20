@@ -46,10 +46,8 @@ const activeKey = computed(
 );
 const panelBusy = computed(() => loading.value || mitmStore.switchLoading);
 
-const mitmOnly = computed(() => settingsStore.settings?.mitm_only === true);
-const mitmTunMode = computed(
-  () => settingsStore.settings?.mitm_tun_mode === true,
-);
+// MITM-only mode is now always active
+const mitmOnly = computed(() => true);
 type RecentMitmEvent = {
   at?: string;
   message?: string;
@@ -111,9 +109,7 @@ const recentEventToneClass = (tone?: string) => {
 };
 
 const emptyPoolHint = computed(() =>
-  mitmOnly.value
-    ? "号池为空 — 请在侧栏「号池 (MITM)」导入带 sk-ws- API Key 的账号，纯 MITM 轮换完全依赖这里的号池"
-    : "号池为空 — 请先在侧栏「号池 (MITM)」导入带 API Key 的账号",
+  "号池为空 — 请在侧栏「号池 (MITM)」导入带 sk-ws- API Key 的账号，纯 MITM 轮换完全依赖这里的号池",
 );
 
 const statusTone = computed(() =>
@@ -514,22 +510,6 @@ const handleTeardown = async () => {
               </div>
             </div>
           </div>
-        </div>
-
-        <div
-          v-if="mitmTunMode"
-          class="rounded-[18px] border border-ios-blue/20 bg-ios-blue/[0.06] dark:bg-ios-blue/[0.12] px-4 py-3 text-[13px] text-ios-text dark:text-ios-textDark leading-relaxed space-y-1.5"
-        >
-          <p class="font-semibold">与 TUN / 全局代理并存</p>
-          <p class="text-ios-textSecondary dark:text-ios-textSecondaryDark">
-            若系统已开 Clash / sing-box 等 TUN，请保证
-            <code
-              class="font-mono text-[12px] px-1 rounded bg-black/5 dark:bg-white/10"
-              >server.self-serve.windsurf.com</code
-            >
-            等域名与下方 Hosts 一致（指向本机
-            MITM），或在代理规则中对该域名走直连/本机，避免流量绕过本应用 MITM。
-          </p>
         </div>
 
         <div

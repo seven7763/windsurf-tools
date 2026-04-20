@@ -21,7 +21,6 @@ func (a *App) onTrayReady() {
 	systray.SetTooltip("Windsurf Tools — 号池 · MITM · 切号")
 
 	mShow := systray.AddMenuItem("显示主窗口", "恢复完整界面")
-	mToolbar := systray.AddMenuItem("桌面工具栏", "小窗口置顶，显示当前账号与额度")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("退出并恢复环境", "完全退出应用，并清理 MITM hosts / 证书 / Codeium 配置")
 
@@ -30,13 +29,6 @@ func (a *App) onTrayReady() {
 			select {
 			case <-mShow.ClickedCh:
 				a.activateExistingWindow()
-			case <-mToolbar.ClickedCh:
-				if a.ctx == nil {
-					continue
-				}
-				_ = a.ApplyToolbarLayout(true)
-				runtime.WindowUnminimise(a.ctx)
-				runtime.WindowShow(a.ctx)
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				if a.ctx != nil {

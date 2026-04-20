@@ -371,10 +371,10 @@ func probeChat(result probeResult, proxyURL string) chatProbe {
 	_ = http2.ConfigureTransport(transport)
 	client := &http.Client{Timeout: 45 * time.Second, Transport: transport}
 
-	payload := services.WrapGRPCEnvelope(services.BuildChatRequest([]services.ChatMessage{{
+	payload := services.BuildChatRequest([]services.ChatMessage{{
 		Role:    "user",
 		Content: "Reply with OK only.",
-	}}, apiKey, jwt, ""))
+	}}, apiKey, jwt, "", nil)
 
 	req, err := http.NewRequest("POST",
 		fmt.Sprintf("https://%s/exa.api_server_pb.ApiServerService/GetChatMessage", services.ResolveUpstreamIP()),
@@ -385,12 +385,10 @@ func probeChat(result probeResult, proxyURL string) chatProbe {
 		return probe
 	}
 	req.Host = services.GRPCUpstreamHost
-	req.Header.Set("content-type", "application/grpc")
-	req.Header.Set("te", "trailers")
+	req.Header.Set("content-type", "application/connect+proto")
+	req.Header.Set("Connect-Protocol-Version", "1")
 	req.Header.Set("authorization", "Bearer "+jwt)
-	req.Header.Set("user-agent", "connect-es/1.6.1")
-	req.Header.Set("x-client-name", services.WindsurfAppName)
-	req.Header.Set("x-client-version", services.WindsurfVersion)
+	req.Header.Set("user-agent", "connect-go/1.18.1 (go1.26.1)")
 
 	resp, err := client.Do(req)
 	if err != nil {

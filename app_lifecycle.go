@@ -36,18 +36,12 @@ func (a *App) shouldCleanupMitmEnvironment() bool {
 }
 
 func (a *App) activateExistingWindow() {
-	showToolbar := a.store != nil && a.store.GetSettings().ShowDesktopToolbar
 	if a.activateExistingAppFn != nil {
-		a.activateExistingAppFn(showToolbar)
+		a.activateExistingAppFn()
 		return
 	}
 	if a.ctx == nil {
 		return
-	}
-	if showToolbar {
-		_ = a.ApplyToolbarLayout(true)
-	} else {
-		_ = a.RestoreMainWindowLayout()
 	}
 	runtime.WindowUnminimise(a.ctx)
 	runtime.WindowShow(a.ctx)

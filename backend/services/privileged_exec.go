@@ -29,17 +29,63 @@ func buildPrivilegeCommand(goos string, euid int, lookPath func(string) (string,
 		resolvedTarget = path
 	}
 
-	if strings.ToLower(strings.TrimSpace(goos)) != "linux" || euid == 0 {
+	normOS := strings.ToLower(strings.TrimSpace(goos))
+
+	if euid == 0 {
 		return resolvedTarget, args, nil
 	}
 
-	if pkexecPath, err := lookPath("pkexec"); err == nil {
-		return pkexecPath, append([]string{resolvedTarget}, args...), nil
+	switch normOS {
+	case "darwin":
+		// macOS: use osascript for graphical admin privilege dialog
+		shellCmd := shellQuote(resolvedTarget)
+		for _, a := range args {
+			shellCmd += " " + shellQuote(a)
+		}
+		script := fmt.Sprintf(`do shell script "%s" with administrator privileges`, shellEscapeAppleScript(shellCmd))
+		return "/usr/bin/osascript", []string{"-e", script}, nil
+	case "linux":
+		if pkexecPath, err := lookPath("pkexec"); err == nil {
+			return pkexecPath, append([]string{resolvedTarget}, args...), nil
+		}
+		if sudoPath, err := lookPath("sudo"); err == nil {
+			return sudoPath, append([]string{resolvedTarget}, args...), nil
+		}
+		return "", nil, fmt.Errorf("Linux 需要 root 权限，请使用 root 启动，或确保系统已安装 pkexec/sudo")
+	default:
+		// Windows or unknown: run directly
+		return resolvedTarget, args, nil
 	}
-	if sudoPath, err := lookPath("sudo"); err == nil {
-		return sudoPath, append([]string{resolvedTarget}, args...), nil
+}
+
+// shellQuote wraps s in single quotes for POSIX sh.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''" ) + "'"
+}
+
+// shellEscapeAppleScript escapes a shell command string for embedding in AppleScript.
+func shellEscapeAppleScript(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
+// runShellScriptWithPrivilege 直接以管理员权限执行 shell 脚本。
+// 与 runCommandWithPrivilege 不同，此函数不做额外的 shellQuote 包装，
+// 避免 do shell script "sh -c '...'" 的双重引号嵌套问题。
+func runShellScriptWithPrivilege(script string) ([]byte, error) {
+	if os.Geteuid() == 0 {
+		cmd := exec.Command("/bin/sh", "-c", script)
+		return cmd.CombinedOutput()
 	}
-	return "", nil, fmt.Errorf("Linux 需要 root 权限，请使用 root 启动，或确保系统已安装 pkexec/sudo")
+	switch runtime.GOOS {
+	case "darwin":
+		appleScript := fmt.Sprintf(`do shell script "%s" with administrator privileges`, shellEscapeAppleScript(script))
+		cmd := exec.Command("/usr/bin/osascript", "-e", appleScript)
+		return cmd.CombinedOutput()
+	default:
+		return runCommandWithPrivilege("/bin/sh", "-c", script)
+	}
 }
 
 func runCommandWithPrivilege(target string, args ...string) ([]byte, error) {
@@ -59,7 +105,7 @@ func runCommandWithPrivilege(target string, args ...string) ([]byte, error) {
 func writeSystemFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.WriteFile(path, data, perm); err == nil {
 		return nil
-	} else if runtime.GOOS != "linux" {
+	} else if runtime.GOOS == "windows" {
 		return err
 	}
 
@@ -93,7 +139,7 @@ func writeSystemFile(path string, data []byte, perm os.FileMode) error {
 func removeSystemFile(path string) error {
 	if err := os.Remove(path); err == nil || os.IsNotExist(err) {
 		return nil
-	} else if runtime.GOOS != "linux" {
+	} else if runtime.GOOS == "windows" {
 		return err
 	}
 	output, err := runCommandWithPrivilege("rm", "-f", path)

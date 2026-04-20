@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"windsurf-tools-wails/backend/models"
 	"windsurf-tools-wails/backend/services"
@@ -16,17 +17,18 @@ import (
 
 // syncMitmPoolKeys syncs pool keys from store accounts that have WindsurfAPIKey.
 // ★ 遵守 AutoSwitchPlanFilter 设置：只有计划匹配的账号才加入 MITM 号池
+// ★ 传入 Plan 信息，使 MITM 代理能区分 Pro/Trial key（用于全局限速退避时优先 Pro）
 func (a *App) syncMitmPoolKeys() {
 	accounts := a.store.GetAllAccounts()
 	settings := a.store.GetSettings()
 	filter := settings.AutoSwitchPlanFilter
 
-	keys := collectEligibleMitmAPIKeys(accounts, filter)
-	a.mitmProxy.SetPoolKeys(keys)
+	infos := collectEligibleMitmPoolKeyInfos(accounts, filter)
+	a.mitmProxy.SetPoolKeysWithPlan(infos)
 }
 
-func collectEligibleMitmAPIKeys(accounts []models.Account, planFilter string) []string {
-	var keys []string
+func collectEligibleMitmPoolKeyInfos(accounts []models.Account, planFilter string) []services.PoolKeyInput {
+	var infos []services.PoolKeyInput
 	seen := make(map[string]struct{})
 	for _, acc := range accounts {
 		if !accountEligibleForUsage(&acc, planFilter, true) {
@@ -40,7 +42,20 @@ func collectEligibleMitmAPIKeys(accounts []models.Account, planFilter string) []
 			continue
 		}
 		seen[key] = struct{}{}
-		keys = append(keys, key)
+		infos = append(infos, services.PoolKeyInput{
+			APIKey: key,
+			Plan:   acc.PlanName,
+		})
+	}
+	return infos
+}
+
+// collectEligibleMitmAPIKeys returns just the API key strings (backward compat wrapper).
+func collectEligibleMitmAPIKeys(accounts []models.Account, planFilter string) []string {
+	infos := collectEligibleMitmPoolKeyInfos(accounts, planFilter)
+	keys := make([]string, 0, len(infos))
+	for _, info := range infos {
+		keys = append(keys, info.APIKey)
 	}
 	return keys
 }
@@ -48,10 +63,32 @@ func collectEligibleMitmAPIKeys(accounts []models.Account, planFilter string) []
 // StartMitmProxy starts the MITM reverse proxy with full system setup.
 func (a *App) StartMitmProxy() error {
 	a.syncMitmPoolKeys()
+
+	// 生成 CA（如果不存在）
+	if _, err := services.EnsureCA(services.TargetDomain); err != nil {
+		return err
+	}
+
+	// macOS: CA 信任必须走 Terminal.app（osascript admin 无法设置信任）。
+	// 如果尚未真正信任，先弹出 Terminal 引导用户输密码装信任。
+	if runtime.GOOS == "darwin" && !services.IsCAInstalled() {
+		if err := services.InstallCA(); err != nil {
+			return fmt.Errorf("CA 信任安装失败: %w", err)
+		}
+	}
+
+	// macOS: 把 hosts + DNS 刷新合并到 porthelper 的 osascript（单次密码）
+	if runtime.GOOS == "darwin" {
+		if err := services.DarwinBatchSetup(); err != nil {
+			return err
+		}
+	}
+
 	if err := a.mitmProxy.Start(); err != nil {
 		return err
 	}
-	// 自动应用系统修改: hosts劫持 + DNS刷新 + 注册表代理白名单 + Codeium config
+
+	// 非 macOS 走原有逐步设置；macOS batch 已处理过的会跳过（幂等检查）
 	a.applyMitmSystemSetup()
 	return nil
 }
@@ -155,37 +192,42 @@ func (a *App) SetupMitmHosts() error {
 // TeardownMitm removes hosts entry, cleans ProxyOverride, restores Codeium config, and uninstalls CA.
 func (a *App) TeardownMitm() error {
 	var errs []error
+
+	// 停止 MITM 代理（macOS: 此步骤内含 DisablePFRedirect，跳过以避免额外密码弹窗）
 	if a.mitmProxy != nil {
 		if err := a.mitmProxy.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("停止 MITM 代理: %w", err))
 		}
 	}
-	if err := services.RemoveHostsEntry(services.TargetDomain); err != nil {
-		errs = append(errs, fmt.Errorf("恢复 hosts: %w", err))
-	}
+
+	// 非特权操作先做
 	if err := services.RemoveProxyOverride(); err != nil {
 		errs = append(errs, fmt.Errorf("恢复 ProxyOverride: %w", err))
 	}
 	if err := services.RestoreCodeiumConfig(); err != nil {
 		errs = append(errs, fmt.Errorf("恢复 Codeium 配置: %w", err))
 	}
-	// ★ 恢复原始登录态
-	if a.switchSvc != nil {
-		a.switchSvc.RestoreOriginalAuth()
+
+	// macOS: 合并所有特权操作为一次密码弹窗（恢复 hosts + 卸载 CA + 恢复 pf）
+	if runtime.GOOS == "darwin" {
+		if err := services.DarwinBatchTeardown(); err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		if err := services.RemoveHostsEntry(services.TargetDomain); err != nil {
+			errs = append(errs, fmt.Errorf("恢复 hosts: %w", err))
+		}
+		if err := services.UninstallCA(); err != nil {
+			errs = append(errs, fmt.Errorf("卸载 CA: %w", err))
+		}
 	}
-	if err := services.UninstallCA(); err != nil {
-		errs = append(errs, fmt.Errorf("卸载 CA: %w", err))
-	}
+
 	services.InvalidateCACache()
 	return errors.Join(errs...)
 }
 
 // applyMitmSystemSetup 一键应用所有系统修改 (MITM 启动时调用)
 func (a *App) applyMitmSystemSetup() {
-	// ★ 备份原始登录态，退出时恢复
-	if a.switchSvc != nil {
-		a.switchSvc.BackupOriginalAuth()
-	}
 	_ = services.AddHostsEntry(services.TargetDomain)
 	_ = services.AddProxyOverride()
 	a.injectFirstPoolKeyToCodeiumConfig()
@@ -332,12 +374,7 @@ func (a *App) handleMitmCurrentKeyChanged(apiKey, reason string) {
 		utils.DLog("[回调] onCurrentKeyChanged: %s 缺少 Token，跳过本地 auth 同步 reason=%s", labelAccountResult(acc), reason)
 		return
 	}
-	if err := a.syncMitmLocalAuth(acc); err != nil {
-		utils.DLog("[回调] onCurrentKeyChanged: 写入本地 auth 失败 %s err=%v", labelAccountResult(acc), err)
-		return
-	}
-	utils.DLog("[回调] onCurrentKeyChanged: 已同步本地 auth -> %s reason=%s", labelAccountResult(acc), reason)
-	go a.applyPostWindsurfSwitch()
+	utils.DLog("[回调] onCurrentKeyChanged: MITM key 已切换 -> %s reason=%s", labelAccountResult(acc), reason)
 }
 
 func (a *App) switchMitmAccountAndSyncLocalSession(acc models.Account) (string, error) {
@@ -354,26 +391,8 @@ func (a *App) switchMitmAccountAndSyncLocalSession(acc models.Account) (string, 
 	if !a.mitmProxy.SwitchToKey(apiKey) {
 		return "", fmt.Errorf("该账号当前未加入 MITM 号池，请检查套餐筛选、额度状态或 API Key 是否可用")
 	}
-	if err := a.syncMitmLocalAuth(prepared); err != nil {
-		return "", err
-	}
-	utils.DLog("[MITM] 手动切号后同步本地 auth 成功: %s", prepared.Email)
-	go a.applyPostWindsurfSwitch()
+	utils.DLog("[MITM] 手动切号成功: %s", prepared.Email)
 	return a.describeMitmKey(apiKey), nil
-}
-
-func (a *App) syncMitmLocalAuth(acc models.Account) error {
-	if a.switchSvc == nil {
-		return fmt.Errorf("切号服务未初始化")
-	}
-	token := strings.TrimSpace(acc.Token)
-	if token == "" {
-		return fmt.Errorf("该账号没有可写入本地登录态的 Token")
-	}
-	if err := a.switchSvc.SwitchAccount(token, strings.TrimSpace(acc.Email)); err != nil {
-		return fmt.Errorf("写入本地 windsurf_auth 失败: %w", err)
-	}
-	return nil
 }
 
 func (a *App) syncForgeConfig() {

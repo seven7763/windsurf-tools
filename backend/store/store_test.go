@@ -67,7 +67,7 @@ func TestNewStoreInPaths(t *testing.T) {
 func TestLoadSettingsKeepsKnownFieldsAndIgnoresLegacyFields(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, "settings.json")
-	raw := []byte(`{"mitm_proxy_enabled":true,"mitm_proxy_port":8443,"seamless_switch":true,"proxy_enabled":true}`)
+	raw := []byte(`{"auto_refresh_tokens":true,"auto_switch_on_quota_exhausted":true}`)
 	if err := os.WriteFile(settingsPath, raw, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +78,10 @@ func TestLoadSettingsKeepsKnownFieldsAndIgnoresLegacyFields(t *testing.T) {
 	}
 
 	got := s.GetSettings()
-	if !got.MitmProxyEnabled {
-		t.Fatal("MitmProxyEnabled should load from settings.json")
+	if !got.AutoRefreshTokens {
+		t.Fatal("AutoRefreshTokens should load from settings.json")
 	}
-	if !got.ProxyEnabled {
-		t.Fatal("ProxyEnabled should load from settings.json")
+	if !got.AutoSwitchOnQuotaExhausted {
+		t.Fatal("AutoSwitchOnQuotaExhausted should load from settings.json")
 	}
 }

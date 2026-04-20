@@ -1,5 +1,3 @@
-export const PURE_MITM_ONLY = true
-
 export const APP_PRODUCT_NAME = 'Windsurf MITM'
 export const APP_PRODUCT_TAGLINE = '纯 MITM 号池轮换与 OpenAI Relay'
 

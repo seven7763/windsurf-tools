@@ -18,13 +18,18 @@ func encodeVarintField(fieldNum, value uint64) []byte {
 }
 
 // buildGenerationConfig 构造 F8 generation config 子消息。
-// 基于抓包: F1=1, F2=8192(max_tokens), F3=200, F7=50, F9=stop_words(repeated)
+// 基于抓包: F1=1, F2=64000(max_tokens), F3=200, F5/F6=fixed64(temperature doubles), F7=50, F8=fixed64, F9=stop_words, F11=fixed64
 func buildGenerationConfig() []byte {
 	var cfg []byte
 	cfg = append(cfg, encodeVarintField(1, 1)...)
-	cfg = append(cfg, encodeVarintField(2, 8192)...)
+	cfg = append(cfg, encodeVarintField(2, 64000)...)
 	cfg = append(cfg, encodeVarintField(3, 200)...)
+	// F5, F6: temperature as fixed64 (IEEE 754 double, value ~0.0)
+	cfg = append(cfg, encodeFixed64Field(5, 4600877379321698714)...)
+	cfg = append(cfg, encodeFixed64Field(6, 4600877379321698714)...)
 	cfg = append(cfg, encodeVarintField(7, 50)...)
+	// F8: fixed64 (default value)
+	cfg = append(cfg, encodeFixed64Field(8, 4607182418800017408)...)
 	// stop words from captured traffic
 	stopWords := []string{
 		"\x3c|user|\x3e",
@@ -36,6 +41,8 @@ func buildGenerationConfig() []byte {
 	for _, sw := range stopWords {
 		cfg = append(cfg, utils.EncodeStringField(9, sw)...)
 	}
+	// F11: fixed64 (default value)
+	cfg = append(cfg, encodeFixed64Field(11, 4607182418800017408)...)
 	return cfg
 }
 
@@ -45,9 +52,9 @@ var modelEnumMap = map[string]string{
 	"cascade": "",
 
 	// GPT 系列
-	"gpt-4o":      "MODEL_GPT_4O",
-	"gpt-4o-mini": "MODEL_GPT_4O_MINI",
-	"gpt-4.1":     "MODEL_GPT_4_1",
+	"gpt-4o":       "MODEL_GPT_4O",
+	"gpt-4o-mini":  "MODEL_GPT_4O_MINI",
+	"gpt-4.1":      "MODEL_GPT_4_1",
 	"gpt-4.1-mini": "MODEL_GPT_4_1_MINI",
 	"gpt-4.1-nano": "MODEL_GPT_4_1_NANO",
 

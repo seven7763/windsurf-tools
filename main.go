@@ -2,10 +2,8 @@ package main
 
 import (
 	"embed"
-	"log"
 	"os"
 
-	"github.com/kardianos/service"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -22,22 +20,6 @@ var trayIconPNG []byte
 var trayIconWindowsICO []byte
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "install", "uninstall", "start", "stop", "restart":
-			if err := runServiceControl(os.Args[1]); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
-	}
-	if !service.Interactive() {
-		if err := runHeadlessDaemon(); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-
 	silent := false
 	for _, a := range os.Args[1:] {
 		if a == "-silent" || a == "--silent" || a == "--silent-start" {

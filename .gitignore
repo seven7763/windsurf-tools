@@ -4,6 +4,11 @@ node_modules
 frontend/dist
 frontend/node_modules
 
+# 本地归档（含旧版源码 + 147MB zip，勿推）
+备份/
+*.zip
+*.dmg
+
 # 勿提交：含本地调试凭证样例
 test_debug.go
 

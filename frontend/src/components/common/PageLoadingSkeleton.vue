@@ -2,7 +2,7 @@
 import SkeletonBlock from "./SkeletonBlock.vue";
 
 defineProps<{
-  variant: "dashboard" | "accounts" | "relay" | "settings";
+  variant: "dashboard" | "accounts" | "relay" | "settings" | "usage";
 }>();
 </script>
 
@@ -148,6 +148,138 @@ defineProps<{
             <SkeletonBlock class="h-11 w-full rounded-[14px]" />
             <SkeletonBlock class="h-11 w-full rounded-[14px]" />
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div
+    v-else-if="variant === 'usage'"
+    class="space-y-6 w-full max-w-5xl mx-auto p-6 md:p-8 pb-10"
+    aria-busy="true"
+    aria-label="加载中"
+  >
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="min-w-0 space-y-3">
+        <div class="flex items-center gap-3">
+          <SkeletonBlock class="h-10 w-10 rounded-2xl shrink-0" />
+          <SkeletonBlock class="h-8 w-32 rounded-xl" />
+        </div>
+        <SkeletonBlock class="h-4 w-80 max-w-full rounded-lg" />
+      </div>
+      <div class="flex gap-2">
+        <SkeletonBlock class="h-10 w-24 rounded-full" />
+        <SkeletonBlock class="h-10 w-28 rounded-full" />
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div
+        v-for="card in 6"
+        :key="`usage-kpi-${card}`"
+        class="ios-glass rounded-[24px] border border-black/[0.05] p-5 dark:border-white/[0.08]"
+      >
+        <div class="flex items-center justify-between gap-3">
+          <div class="space-y-3">
+            <SkeletonBlock class="h-3.5 w-24 rounded-lg" />
+            <SkeletonBlock class="h-7 w-28 rounded-lg" />
+          </div>
+          <SkeletonBlock class="h-10 w-10 rounded-2xl shrink-0" />
+        </div>
+        <SkeletonBlock class="mt-4 h-4 w-[78%] rounded-lg" />
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <div
+        class="ios-glass rounded-[24px] border border-black/[0.05] overflow-hidden dark:border-white/[0.08]"
+      >
+        <div class="flex items-center justify-between gap-3 border-b border-black/[0.05] px-6 py-5 dark:border-white/[0.08]">
+          <SkeletonBlock class="h-5 w-36 rounded-lg" />
+          <SkeletonBlock class="h-4 w-32 rounded-lg" />
+        </div>
+        <div class="space-y-3 p-6">
+          <div
+            v-for="row in 5"
+            :key="`usage-day-${row}`"
+            class="grid grid-cols-[140px_1fr_1fr] items-center gap-4 rounded-[18px] border border-black/[0.04] px-4 py-3 dark:border-white/[0.05]"
+          >
+            <SkeletonBlock class="h-4 w-24 rounded-lg" />
+            <SkeletonBlock class="h-4 w-16 rounded-lg justify-self-end" />
+            <SkeletonBlock class="h-4 w-20 rounded-lg justify-self-end" />
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="ios-glass rounded-[24px] border border-black/[0.05] overflow-hidden dark:border-white/[0.08]"
+      >
+        <div class="flex items-center justify-between gap-3 border-b border-black/[0.05] px-6 py-5 dark:border-white/[0.08]">
+          <SkeletonBlock class="h-5 w-28 rounded-lg" />
+          <SkeletonBlock class="h-4 w-16 rounded-lg" />
+        </div>
+        <div class="space-y-4 p-6">
+          <div
+            v-for="row in 4"
+            :key="`usage-model-${row}`"
+            class="rounded-[20px] border border-black/[0.04] p-4 dark:border-white/[0.05]"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 space-y-2">
+                <SkeletonBlock class="h-4 w-40 max-w-full rounded-lg" />
+                <SkeletonBlock class="h-3.5 w-28 rounded-lg" />
+              </div>
+              <SkeletonBlock class="h-4 w-10 rounded-lg shrink-0" />
+            </div>
+            <SkeletonBlock class="mt-4 h-2 w-full rounded-full" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="ios-glass rounded-[24px] border border-black/[0.05] overflow-hidden dark:border-white/[0.08]"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-4 border-b border-black/[0.05] px-6 py-5 dark:border-white/[0.08]">
+        <div class="space-y-3">
+          <SkeletonBlock class="h-5 w-32 rounded-lg" />
+          <SkeletonBlock class="h-4 w-72 max-w-full rounded-lg" />
+        </div>
+        <SkeletonBlock class="h-4 w-24 rounded-lg" />
+      </div>
+
+      <div class="border-b border-black/[0.05] bg-black/[0.02] px-6 py-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
+        <div class="grid grid-cols-1 gap-3 xl:grid-cols-[220px_minmax(0,1fr)_220px]">
+          <div class="space-y-2">
+            <SkeletonBlock class="h-3 w-12 rounded-lg" />
+            <SkeletonBlock class="h-12 w-full rounded-[16px]" />
+          </div>
+          <div class="space-y-2">
+            <SkeletonBlock class="h-3 w-12 rounded-lg" />
+            <SkeletonBlock class="h-12 w-full rounded-[16px]" />
+          </div>
+          <div class="space-y-2">
+            <SkeletonBlock class="h-3 w-12 rounded-lg" />
+            <SkeletonBlock class="h-12 w-full rounded-[16px]" />
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-3 p-6">
+        <div
+          v-for="row in 6"
+          :key="`usage-record-${row}`"
+          class="grid grid-cols-[160px_90px_140px_90px_90px_110px_90px_90px_1fr] items-center gap-3 rounded-[18px] border border-black/[0.04] px-4 py-3 dark:border-white/[0.05]"
+        >
+          <SkeletonBlock class="h-4 w-28 rounded-lg" />
+          <SkeletonBlock class="h-5 w-14 rounded-full" />
+          <SkeletonBlock class="h-5 w-24 rounded-full" />
+          <SkeletonBlock class="h-4 w-12 rounded-lg justify-self-end" />
+          <SkeletonBlock class="h-4 w-12 rounded-lg justify-self-end" />
+          <SkeletonBlock class="h-4 w-16 rounded-lg justify-self-end" />
+          <SkeletonBlock class="h-4 w-10 rounded-lg justify-self-end" />
+          <SkeletonBlock class="h-5 w-16 rounded-full" />
+          <SkeletonBlock class="h-4 w-full rounded-lg" />
         </div>
       </div>
     </div>

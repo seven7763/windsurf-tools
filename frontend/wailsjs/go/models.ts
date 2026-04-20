@@ -14,48 +14,6 @@ export namespace main {
 	        this.remark = source["remark"];
 	    }
 	}
-	export class BackgroundServiceStatus {
-	    name: string;
-	    platform: string;
-	    supported: boolean;
-	    installed: boolean;
-	    running: boolean;
-	    status: string;
-	    detail: string;
-	    autostart_mitm: boolean;
-	    log_path: string;
-	    recent_logs: string[];
-	    last_log_at: string;
-	    last_log_line: string;
-	    last_log_tone: string;
-	    last_error_at: string;
-	    last_error_line: string;
-	    recent_error_count: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new BackgroundServiceStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.platform = source["platform"];
-	        this.supported = source["supported"];
-	        this.installed = source["installed"];
-	        this.running = source["running"];
-	        this.status = source["status"];
-	        this.detail = source["detail"];
-	        this.autostart_mitm = source["autostart_mitm"];
-	        this.log_path = source["log_path"];
-	        this.recent_logs = source["recent_logs"];
-	        this.last_log_at = source["last_log_at"];
-	        this.last_log_line = source["last_log_line"];
-	        this.last_log_tone = source["last_log_tone"];
-	        this.last_error_at = source["last_error_at"];
-	        this.last_error_line = source["last_error_line"];
-	        this.recent_error_count = source["recent_error_count"];
-	    }
-	}
 	export class CleanupCategory {
 	    id: string;
 	    name: string;
@@ -100,36 +58,6 @@ export namespace main {
 	        this.freed_human = source["freed_human"];
 	        this.deleted_dirs = source["deleted_dirs"];
 	        this.error = source["error"];
-	    }
-	}
-	export class DesktopRuntimeStatus {
-	    status: string;
-	    detail: string;
-	    log_path: string;
-	    recent_logs: string[];
-	    last_log_at: string;
-	    last_log_line: string;
-	    last_log_tone: string;
-	    last_error_at: string;
-	    last_error_line: string;
-	    recent_error_count: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new DesktopRuntimeStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.status = source["status"];
-	        this.detail = source["detail"];
-	        this.log_path = source["log_path"];
-	        this.recent_logs = source["recent_logs"];
-	        this.last_log_at = source["last_log_at"];
-	        this.last_log_line = source["last_log_line"];
-	        this.last_log_tone = source["last_log_tone"];
-	        this.last_error_at = source["last_error_at"];
-	        this.last_error_line = source["last_error_line"];
-	        this.recent_error_count = source["recent_error_count"];
 	    }
 	}
 	export class EmailPasswordItem {
@@ -308,9 +236,6 @@ export namespace models {
 	    }
 	}
 	export class Settings {
-	    proxy_enabled: boolean;
-	    proxy_url: string;
-	    windsurf_path: string;
 	    concurrent_limit: number;
 	    auto_refresh_tokens: boolean;
 	    auto_refresh_quotas: boolean;
@@ -319,13 +244,8 @@ export namespace models {
 	    auto_switch_plan_filter: string;
 	    auto_switch_on_quota_exhausted: boolean;
 	    quota_hot_poll_seconds: number;
-	    restart_windsurf_after_switch: boolean;
 	    minimize_to_tray: boolean;
-	    show_desktop_toolbar: boolean;
 	    silent_start: boolean;
-	    mitm_only: boolean;
-	    mitm_tun_mode: boolean;
-	    mitm_proxy_enabled: boolean;
 	    mitm_debug_dump: boolean;
 	    mitm_full_capture: boolean;
 	    static_cache_intercept: boolean;
@@ -348,9 +268,6 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.proxy_enabled = source["proxy_enabled"];
-	        this.proxy_url = source["proxy_url"];
-	        this.windsurf_path = source["windsurf_path"];
 	        this.concurrent_limit = source["concurrent_limit"];
 	        this.auto_refresh_tokens = source["auto_refresh_tokens"];
 	        this.auto_refresh_quotas = source["auto_refresh_quotas"];
@@ -359,13 +276,8 @@ export namespace models {
 	        this.auto_switch_plan_filter = source["auto_switch_plan_filter"];
 	        this.auto_switch_on_quota_exhausted = source["auto_switch_on_quota_exhausted"];
 	        this.quota_hot_poll_seconds = source["quota_hot_poll_seconds"];
-	        this.restart_windsurf_after_switch = source["restart_windsurf_after_switch"];
 	        this.minimize_to_tray = source["minimize_to_tray"];
-	        this.show_desktop_toolbar = source["show_desktop_toolbar"];
 	        this.silent_start = source["silent_start"];
-	        this.mitm_only = source["mitm_only"];
-	        this.mitm_tun_mode = source["mitm_tun_mode"];
-	        this.mitm_proxy_enabled = source["mitm_proxy_enabled"];
 	        this.mitm_debug_dump = source["mitm_debug_dump"];
 	        this.mitm_full_capture = source["mitm_full_capture"];
 	        this.static_cache_intercept = source["static_cache_intercept"];
@@ -405,6 +317,7 @@ export namespace services {
 	    }
 	}
 	export class SessionBindingInfo {
+	    conv_id: string;
 	    conv_id_short: string;
 	    pool_key_short: string;
 	    bound_at: string;
@@ -418,6 +331,7 @@ export namespace services {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conv_id = source["conv_id"];
 	        this.conv_id_short = source["conv_id_short"];
 	        this.pool_key_short = source["pool_key_short"];
 	        this.bound_at = source["bound_at"];
@@ -428,6 +342,7 @@ export namespace services {
 	}
 	export class PoolKeyInfo {
 	    key_short: string;
+	    plan: string;
 	    healthy: boolean;
 	    disabled: boolean;
 	    runtime_exhausted: boolean;
@@ -448,6 +363,7 @@ export namespace services {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key_short = source["key_short"];
+	        this.plan = source["plan"];
 	        this.healthy = source["healthy"];
 	        this.disabled = source["disabled"];
 	        this.runtime_exhausted = source["runtime_exhausted"];
