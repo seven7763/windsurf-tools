@@ -439,6 +439,7 @@ func (a *App) syncAccountCredentialsWithService(svc *services.WindsurfService, a
 			acc.Token = resp.IDToken
 			acc.RefreshToken = resp.RefreshToken
 			acc.TokenExpiresAt = time.Now().Add(1 * time.Hour).Format(time.RFC3339)
+			maybeBackfillAuth1SessionKey(svc, acc, label)
 			utils.DLog("[凭证] %s RefreshToken成功 tokenLen=%d", label, len(resp.IDToken))
 			return
 		}
@@ -451,6 +452,7 @@ func (a *App) syncAccountCredentialsWithService(svc *services.WindsurfService, a
 			acc.Token = resp.IDToken
 			acc.RefreshToken = resp.RefreshToken
 			acc.TokenExpiresAt = time.Now().Add(1 * time.Hour).Format(time.RFC3339)
+			maybeBackfillAuth1SessionKey(svc, acc, label)
 			utils.DLog("[凭证] %s 邮箱登录成功 tokenLen=%d", label, len(resp.IDToken))
 			return
 		}

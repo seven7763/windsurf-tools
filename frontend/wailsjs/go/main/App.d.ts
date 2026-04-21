@@ -90,6 +90,8 @@ export function StopMitmProxy():Promise<void>;
 
 export function StopOpenAIRelay():Promise<void>;
 
+export function SwitchAccountLocal(arg1:string):Promise<string>;
+
 export function SwitchMitmToAccount(arg1:string):Promise<string>;
 
 export function SwitchMitmToNext():Promise<string>;

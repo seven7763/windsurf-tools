@@ -46,6 +46,7 @@ export const APIInfo = {
   getMitmCAPath: AppHooks.GetMitmCAPath,
   switchMitmToNext: AppHooks.SwitchMitmToNext,
   switchMitmToAccount: AppHooks.SwitchMitmToAccount,
+  switchAccountLocal: (AppHooks as any).SwitchAccountLocal,
 
   // OpenAI 中转
   startOpenAIRelay: AppHooks.StartOpenAIRelay,

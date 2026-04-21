@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ type WindsurfService struct {
 }
 
 func NewWindsurfService(proxyURL string) *WindsurfService {
+	jar, _ := cookiejar.New(nil)
 	transport := &http.Transport{
 		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
 		ForceAttemptHTTP2: true,
@@ -43,7 +45,7 @@ func NewWindsurfService(proxyURL string) *WindsurfService {
 		}
 	}
 	return &WindsurfService{
-		client: &http.Client{Timeout: 30 * time.Second, Transport: transport},
+		client: &http.Client{Timeout: 30 * time.Second, Transport: transport, Jar: jar},
 	}
 }
 
@@ -68,6 +70,14 @@ type RegisterUserResp struct {
 	APIKey       string `json:"api_key"`
 	Name         string `json:"name"`
 	APIServerURL string `json:"api_server_url"`
+}
+
+type WindsurfPostAuthResp struct {
+	Raw        []byte
+	AuthToken  string
+	SessionKey string
+	AccountID  string
+	OrgID      string
 }
 
 type JWTClaims struct {

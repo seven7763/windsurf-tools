@@ -183,6 +183,7 @@ func (a *App) enrichAccountInfoWithService(svc *services.WindsurfService, acc *m
 				utils.DLog("[enrichFull] %s RegisterUser: 获得APIKey=%s...", label, reg.APIKey[:min(12, len(reg.APIKey))])
 			} else if err != nil {
 				utils.DLog("[enrichFull] %s RegisterUser 失败: %v", label, err)
+				maybeBackfillAuth1SessionKey(svc, acc, label)
 			}
 		}
 	}

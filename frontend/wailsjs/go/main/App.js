@@ -174,6 +174,10 @@ export function StopOpenAIRelay() {
   return window['go']['main']['App']['StopOpenAIRelay']();
 }
 
+export function SwitchAccountLocal(arg1) {
+  return window['go']['main']['App']['SwitchAccountLocal'](arg1);
+}
+
 export function SwitchMitmToAccount(arg1) {
   return window['go']['main']['App']['SwitchMitmToAccount'](arg1);
 }

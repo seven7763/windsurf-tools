@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useAccountStore } from "../stores/useAccountStore";
 import { useMainViewStore } from "../stores/useMainViewStore";
 import { useMitmStatusStore } from "../stores/useMitmStatusStore";
@@ -20,6 +20,7 @@ import {
   CalendarDays,
   Clock,
   Download,
+  LogIn,
 } from "lucide-vue-next";
 import { APIInfo } from "../api/wails";
 import {
@@ -46,6 +47,7 @@ const mainView = useMainViewStore();
 const mitmStore = useMitmStatusStore();
 const showImportModal = ref(false);
 const quotaRefreshingIds = ref<Set<string>>(new Set());
+let bootstrapRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ═══ 单次遍历聚合：避免 tabsList / poolPlanCounts / freePlanAccountCount 各自遍历全量数组 ═══
 const accountAgg = computed(() => {
@@ -223,6 +225,19 @@ const goRelay = () => {
 onMounted(() => {
   void accountStore.ensureAccountsLoaded();
   void mitmStore.ensureStatusLoaded();
+  bootstrapRefreshTimer = setTimeout(() => {
+    void Promise.all([
+      accountStore.fetchAccounts(true),
+      mitmStore.fetchStatus(true),
+    ]);
+  }, 12000);
+});
+
+onBeforeUnmount(() => {
+  if (bootstrapRefreshTimer) {
+    clearTimeout(bootstrapRefreshTimer);
+    bootstrapRefreshTimer = null;
+  }
 });
 
 const handleDelete = async (id: string) => {
@@ -269,6 +284,7 @@ const handleDeleteFreePlans = async () => {
 const handleRefreshTokens = async () => {
   try {
     const map = await accountStore.refreshAllTokens();
+    await mitmStore.fetchStatus(true);
     const entries = Object.entries(map || {});
     const ok = entries.filter(([, v]) => String(v).includes("成功")).length;
     showToast(`刷新完成：${ok} / ${entries.length}`, "success");
@@ -280,6 +296,7 @@ const handleRefreshTokens = async () => {
 const handleRefreshAllQuotas = async () => {
   try {
     const map = await accountStore.refreshAllQuotas();
+    await mitmStore.fetchStatus(true);
     const entries = Object.entries(map || {});
     const synced = entries.filter(([, v]) =>
       String(v).includes("已同步"),
@@ -311,6 +328,8 @@ const handleRefreshOneQuota = async (id: string, email: string) => {
   quotaRefreshingIds.value = next;
   try {
     await accountStore.refreshAccountQuota(id);
+    await accountStore.fetchAccounts(true);
+    await mitmStore.fetchStatus(true);
     showToast(`${email} 额度已更新`, "success");
   } catch (e: unknown) {
     showToast(`刷新额度失败: ${String(e)}`, "error");
@@ -327,9 +346,20 @@ const isAccountCardRefreshing = (id: string) =>
 const handleSwitchMitmToAccount = async (acc: models.Account) => {
   try {
     const target = await mitmStore.switchToAccount(acc.id);
+    await accountStore.fetchAccounts(true);
     showToast(`MITM 已切到：${target || acc.email || "目标账号"}`, "success");
   } catch (e: unknown) {
     showToast(`切换到该账号失败: ${String(e)}`, "error");
+  }
+};
+
+const handleLoginToWindsurf = async (acc: models.Account) => {
+  try {
+    const target = await APIInfo.switchAccountLocal(acc.id);
+    await accountStore.fetchAccounts(true);
+    showToast(`已写入 Windsurf 本地登录态：${target || acc.email || "目标账号"}`, "success");
+  } catch (e: unknown) {
+    showToast(`写入 Windsurf 登录态失败: ${String(e)}`, "error");
   }
 };
 
@@ -1030,6 +1060,15 @@ const getPlanAccentClass = (acc: models.Account) => {
                 <div
                   class="flex shrink-0 gap-1 rounded-full border border-black/5 bg-gray-50/95 p-1 shadow-sm dark:border-white/5 dark:bg-black/20"
                 >
+                  <button
+                    type="button"
+                    class="flex h-[30px] w-[30px] min-w-[30px] items-center justify-center rounded-full bg-white text-violet-600 shadow-sm transition hover:scale-105 dark:bg-black/40 ios-btn"
+                    :disabled="isAccountSwitching(acc.id)"
+                    title="写入本地 Windsurf 登录态"
+                    @click="handleLoginToWindsurf(acc)"
+                  >
+                    <LogIn class="h-[15px] w-[15px]" stroke-width="2.5" />
+                  </button>
                   <button
                     type="button"
                     class="flex h-[30px] w-[30px] min-w-[30px] items-center justify-center rounded-full bg-white text-ios-blue shadow-sm transition hover:scale-105 dark:bg-black/40 ios-btn disabled:opacity-45"

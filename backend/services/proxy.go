@@ -2667,7 +2667,7 @@ func (p *MitmProxy) waitJWTFetch(call *jwtFetchCall) []byte {
 }
 
 func (p *MitmProxy) fetchJWTForKey(apiKey string, force bool) []byte {
-	if apiKey == "" || p.windsurfSvc == nil || !strings.HasPrefix(apiKey, "sk-ws-") {
+	if apiKey == "" || p.windsurfSvc == nil || !isJWTMintablePoolKey(apiKey) {
 		return nil
 	}
 	if p.keyIsDisabled(apiKey) {
@@ -2715,6 +2715,11 @@ func (p *MitmProxy) ensureJWTForKey(apiKey string) []byte {
 
 func (p *MitmProxy) refreshJWTForKey(apiKey string) []byte {
 	return p.fetchJWTForKey(apiKey, true)
+}
+
+func isJWTMintablePoolKey(apiKey string) bool {
+	apiKey = strings.TrimSpace(apiKey)
+	return strings.HasPrefix(apiKey, "sk-ws-") || strings.HasPrefix(apiKey, "devin-session-token$")
 }
 
 func isJWTAccessDeniedError(err error) bool {
