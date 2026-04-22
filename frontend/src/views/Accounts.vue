@@ -512,11 +512,18 @@ const isExpiredAccount = (acc: models.Account) => {
 
 function findMitmPoolRuntime(acc: models.Account) {
   const key = String(acc.windsurf_api_key || "").trim();
+  const email = String(acc.email || "").trim().toLowerCase();
   if (!key) {
     return null;
   }
   return (
     mitmStore.status?.pool_status?.find((item) => {
+      const itemEmail = String(item.email || "")
+        .trim()
+        .toLowerCase();
+      if (email && itemEmail && email === itemEmail) {
+        return true;
+      }
       const short = String(item.key_short || "")
         .trim()
         .replace(/\.\.\.$/, "");
